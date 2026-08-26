@@ -11,7 +11,22 @@ import { TEXTOS_DIA, PREGUNTAS_DIA, RUBRICA_DIA_27 } from './datos-dia.mjs';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-if (process.argv.includes('--reset')) {
+const TABLAS = ['respuestas', 'intentos', 'rubricas', 'opciones', 'preguntas', 'textos', 'pruebas', 'alumnos', 'profesores'];
+
+if (process.argv.includes('--reset') && process.env.DATABASE_URL) {
+  // Contra Postgres no hay archivo que borrar: hay que vaciar las tablas de la
+  // base remota. Es destructivo y sobre datos que no están en este equipo, así
+  // que no se hace sin que lo pidan de forma explícita.
+  if (!process.argv.includes('--forzar')) {
+    console.error('\n--reset apunta a la base remota definida en DATABASE_URL.');
+    console.error('Eso borra alumnos, pruebas y resultados de esa base, y no se puede deshacer.');
+    console.error('Si es lo que quieres, repite el comando agregando --forzar:');
+    console.error('  npm run reset -- --forzar\n');
+    process.exit(1);
+  }
+  await db.exec('DROP TABLE IF EXISTS ' + TABLAS.join(', ') + ' CASCADE');
+  console.log('Tablas eliminadas en la base remota.');
+} else if (process.argv.includes('--reset')) {
   const archivo = path.resolve(raiz, process.env.SQLITE_PATH || './data/dia.db');
   let borrado = false;
 

@@ -164,9 +164,11 @@ server.js                arranque del servidor local
 src/
   app.js                 arma la aplicación Express (reutilizable en Vercel)
   db/
-    index.js             capa de datos: elige el motor
+    index.js             capa de datos: elige el motor segun el entorno
     sqlite.js            driver local (node:sqlite)
-    schema.sql           esquema de tablas
+    postgres.js          driver para Supabase
+    schema.sql           esquema SQLite
+    schema.postgres.sql  esquema Postgres
   lib/
     seguridad.js         hash de contraseñas, sesiones firmadas, códigos de alumno
     sesion.js            middlewares de profesor y alumno
@@ -176,9 +178,12 @@ src/
   routes/
     auth.js  alumno.js  admin.js  informes.js
 public/                  interfaz (HTML, CSS y JS sin compilación)
+api/index.js             punto de entrada para Vercel
+vercel.json              configuracion del despliegue
 scripts/
   seed.mjs               carga inicial
   datos-dia.mjs          estructura oficial del DIA transcrita
+  probar-postgres.mjs    prueba el esquema Postgres contra PGlite
 ```
 
 ---
@@ -196,28 +201,84 @@ scripts/
 
 ---
 
-## Paso a Vercel (pendiente)
+## Despliegue en Vercel con Supabase
 
-El código ya está preparado, pero **falta un paso** para desplegar: Vercel corre en
-funciones sin disco persistente, así que SQLite no sirve allá.
+La plataforma corre con dos motores. En el liceo usa **SQLite** sobre un archivo
+local; si existe la variable `DATABASE_URL` cambia sola a **Postgres**. El código
+de las rutas es el mismo en ambos casos.
 
-Lo que ya está resuelto:
+### 1. Crear la base en Supabase
 
-- `src/app.js` construye la aplicación por separado del arranque, así que se puede
-  exportar como handler.
-- Toda la capa de datos pasa por `src/db/index.js`, con consultas asíncronas,
-  marcadores `?` y SQL portable a propósito.
-- Las sesiones no necesitan almacén en servidor.
-- La interfaz no tiene paso de compilación.
+En tu proyecto de Supabase: **Project Settings → Database → Connection string**,
+y copia la del **Transaction pooler** (puerto `6543`). Esa es la que corresponde
+para funciones serverless; la conexión directa del puerto `5432` abre demasiadas
+conexiones y Supabase termina rechazándolas.
 
-Lo que falta hacer:
+Queda con esta forma:
 
-1. Crear `src/db/postgres.js` con el mismo contrato que `sqlite.js`
-   (`all` / `get` / `run` / `exec` / `tx`), traduciendo `?` a `$1…$n`.
-2. Activarlo en `src/db/index.js`, donde hoy hay un error explícito si existe
-   `DATABASE_URL`.
-3. Traducir `schema.sql` a Postgres (`SERIAL`/`IDENTITY` en vez de
-   `INTEGER PRIMARY KEY AUTOINCREMENT`, `TIMESTAMPTZ` en vez de `datetime('now')`).
-4. Agregar `api/index.js` que exporte la app y un `vercel.json` que reescriba
-   `/api/*` hacia ella.
-5. Definir `SESSION_SECRET` y `DATABASE_URL` como variables de entorno del proyecto.
+```
+postgresql://postgres.abcdefgh:TU-CLAVE@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+```
+
+### 2. Cargar el esquema y los datos iniciales
+
+Desde tu equipo, apuntando a Supabase. En PowerShell:
+
+```powershell
+$env:DATABASE_URL="postgresql://postgres.xxx:clave@...pooler.supabase.com:6543/postgres"; npm run seed
+```
+
+Crea las tablas, la cuenta docente y la plantilla del DIA. Para volver a empezar
+de cero en la base remota hace falta pedirlo explícitamente, porque es
+irreversible:
+
+```bash
+npm run reset -- --forzar
+```
+
+### 3. Variables de entorno en Vercel
+
+En **Settings → Environment Variables**:
+
+| Variable | Valor |
+|---|---|
+| `DATABASE_URL` | la cadena del pooler de Supabase |
+| `SESSION_SECRET` | una cadena larga y aleatoria |
+| `ADMIN_EMAIL` | tu correo docente |
+| `ADMIN_PASSWORD` | una contraseña propia |
+
+`SESSION_SECRET` firma las cookies de sesión: si cambia, todos los usuarios
+quedan desconectados, así que conviene fijarla una vez y no tocarla.
+
+### 4. Desplegar
+
+Importas el repositorio en Vercel. No hay paso de compilación: `api/index.js`
+atiende la API y `public/` se sirve como archivos estáticos, según lo que declara
+`vercel.json`.
+
+### Comprobar la parte de Postgres sin desplegar
+
+```bash
+npm run probar-postgres
+```
+
+Aplica `schema.postgres.sql` y corre las consultas de la aplicación contra un
+Postgres real (PGlite, el mismo motor compilado a WebAssembly), sin necesidad de
+conectarse a Supabase.
+
+### Diferencias que resuelve el driver de Postgres
+
+- Las consultas se escriben con `?` y se traducen a `$1…$n`.
+- SQLite devuelve `lastInsertRowid`; en Postgres se agrega `RETURNING id`.
+- Las transacciones necesitan que `BEGIN` y `COMMIT` viajen por la misma conexión
+  del pool: se resuelve con `AsyncLocalStorage`.
+- Las marcas de tiempo se guardan como texto `'YYYY-MM-DD HH:MM:SS'` en UTC en
+  ambos motores, para que el navegador las interprete igual.
+
+### Un límite a tener presente
+
+Vercel corta las peticiones sobre **4,5 MB**. Los importadores mandan el archivo
+en base64, lo que agrega alrededor de un tercio: un `.docx` o `.xlsx` de hasta
+unos 3 MB entra sin problema (el ensayo de ejemplo pesa 0,5 MB y la nómina
+completa 0,08 MB), pero un documento con muchas imágenes incrustadas podría no
+pasar. En el servidor local no existe ese límite.

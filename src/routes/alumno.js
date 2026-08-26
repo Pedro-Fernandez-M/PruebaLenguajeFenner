@@ -4,9 +4,12 @@ import { normalizarCodigo } from '../lib/seguridad.js';
 import { iniciarSesionAlumno, cerrarSesion, exigirAlumno, COOKIE_ALUMNO } from '../lib/sesion.js';
 import { recalcularIntento, informeDeAlumno } from '../lib/evaluacion.js';
 
+const { AHORA } = db;
+
 const router = express.Router();
 
-// SQLite guarda datetime('now') en UTC; hay que interpretarlo como tal.
+// Las marcas de tiempo se guardan en UTC con formato 'YYYY-MM-DD HH:MM:SS'
+// en ambos motores; hay que interpretarlas como UTC.
 const aMilisegundos = (fechaSql) => Date.parse(String(fechaSql).replace(' ', 'T') + 'Z');
 
 function cursoHabilitado(prueba, curso) {
@@ -90,7 +93,7 @@ router.get('/intentos/:id', exigirAlumno, async (req, res) => {
 
   // Si el tiempo se agoto mientras el alumno estaba fuera, se envia automaticamente.
   if (intento.estado === 'en_curso' && restante === 0) {
-    await db.run("UPDATE intentos SET estado = 'enviado', enviado_en = datetime('now') WHERE id = ?", [intento.id]);
+    await db.run("UPDATE intentos SET estado = 'enviado', enviado_en = " + AHORA + " WHERE id = ?", [intento.id]);
     await recalcularIntento(intento.id);
     return res.status(409).json({ error: 'Se acabó el tiempo. La prueba se envió automáticamente.', intento_id: intento.id });
   }
@@ -144,7 +147,7 @@ router.post('/intentos/:id/respuesta', exigirAlumno, async (req, res) => {
   const existente = await db.get('SELECT id FROM respuestas WHERE intento_id = ? AND pregunta_id = ?', [intento.id, preguntaId]);
   if (existente) {
     await db.run(
-      "UPDATE respuestas SET alternativa = ?, respuesta_texto = ?, actualizado_en = datetime('now') WHERE id = ?",
+      'UPDATE respuestas SET alternativa = ?, respuesta_texto = ?, actualizado_en = ' + AHORA + ' WHERE id = ?',
       [alternativa, texto, existente.id]
     );
   } else {
@@ -166,7 +169,7 @@ router.post('/intentos/:id/enviar', exigirAlumno, async (req, res) => {
   if (!intento) return res.status(404).json({ error: 'Intento no encontrado.' });
   if (intento.estado === 'enviado') return res.json({ ok: true, intento_id: intento.id });
 
-  await db.run("UPDATE intentos SET estado = 'enviado', enviado_en = datetime('now') WHERE id = ?", [intento.id]);
+  await db.run("UPDATE intentos SET estado = 'enviado', enviado_en = " + AHORA + " WHERE id = ?", [intento.id]);
   await recalcularIntento(intento.id);
 
   const prueba = await db.get('SELECT mostrar_resultado_alumno FROM pruebas WHERE id = ?', [intento.prueba_id]);

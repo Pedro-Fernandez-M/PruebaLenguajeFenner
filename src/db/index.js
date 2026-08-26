@@ -1,30 +1,32 @@
-// Capa de datos. Hoy resuelve a SQLite (local); cuando exista DATABASE_URL
-// el mismo contrato lo cumplira el driver de Postgres para desplegar en Vercel.
-// Todas las consultas usan marcadores "?" y SQL portable a proposito.
+// Capa de datos. Elige el motor según el entorno:
+//   * sin DATABASE_URL  → SQLite, para trabajar en el liceo sin internet
+//   * con DATABASE_URL  → Postgres (Supabase), para el despliegue en Vercel
+//
+// Ambos drivers cumplen el mismo contrato (all/get/run/exec/tx/cerrar) y todas
+// las consultas se escriben con marcadores "?" y SQL portable a propósito.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-if (process.env.DATABASE_URL) {
-  throw new Error(
-    'DATABASE_URL esta definida pero el driver de Postgres aun no esta habilitado.\n' +
-    'Para el despliegue en Vercel hay que crear src/db/postgres.js con el mismo\n' +
-    'contrato que src/db/sqlite.js (all/get/run/exec/tx) y traducir "?" a "$n".\n' +
-    'Por ahora deja DATABASE_URL sin definir para trabajar en modo local.'
-  );
-}
+const usarPostgres = !!process.env.DATABASE_URL;
+const motor = usarPostgres ? await import('./postgres.js') : await import('./sqlite.js');
 
-const sqlite = await import('./sqlite.js');
+export const { all, get, run, exec, tx, cerrar, driver } = motor;
 
-export const { all, get, run, exec, tx, cerrar, driver } = sqlite;
+/**
+ * Expresión SQL para "ahora", en UTC y con formato 'YYYY-MM-DD HH:MM:SS'.
+ * Cambia entre motores, así que se interpola en las consultas que la necesitan
+ * en vez de escribirla a mano.
+ */
+export const AHORA = usarPostgres ? 'ahora_utc()' : "datetime('now')";
 
 let inicializada = false;
 
 export async function inicializar() {
   if (inicializada) return;
-  const esquema = fs.readFileSync(path.join(raiz, 'src/db/schema.sql'), 'utf8');
-  await exec(esquema);
+  const archivo = usarPostgres ? 'src/db/schema.postgres.sql' : 'src/db/schema.sql';
+  await exec(fs.readFileSync(path.join(raiz, archivo), 'utf8'));
   inicializada = true;
 }
