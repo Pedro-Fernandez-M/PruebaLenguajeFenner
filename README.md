@@ -29,6 +29,9 @@ Al arrancar, la consola imprime las direcciones. Los alumnos entran desde cualqu
 equipo de la red del liceo a `http://<ip-del-notebook>:3000/`; el docente entra a
 `http://localhost:3000/profesor`.
 
+Copia `.env.example` a `.env` para ajustar la configuración; todos los comandos
+lo cargan solos si existe.
+
 La cuenta docente inicial se crea en el primer arranque con lo que esté en `.env`
 (por defecto `profesor@liceo.cl` / `dia2026`). **Cámbiala apenas ingreses**, en
 *Mi cuenta*.
@@ -222,10 +225,11 @@ postgresql://postgres.abcdefgh:TU-CLAVE@aws-0-us-east-1.pooler.supabase.com:6543
 
 ### 2. Cargar el esquema y los datos iniciales
 
-Desde tu equipo, apuntando a Supabase. En PowerShell:
+Descomenta la línea `DATABASE_URL` en tu `.env` y pega ahí la cadena del pooler.
+Después, desde tu equipo:
 
-```powershell
-$env:DATABASE_URL="postgresql://postgres.xxx:clave@...pooler.supabase.com:6543/postgres"; npm run seed
+```bash
+npm run seed
 ```
 
 Crea las tablas, la cuenta docente y la plantilla del DIA. Para volver a empezar
