@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evaluación diagnóstica — Ingreso</title>
+<link rel="stylesheet" href="/css/estilo.css">
+</head>
+<body>
+
+<header class="barra">
+  <div class="marca">Evaluación diagnóstica <span>Lengua y Literatura</span></div>
+  <div class="espacio"></div>
+  <div id="identidad" class="silencio"></div>
+  <div id="reloj-caja"></div>
+  <button id="btn-salir" class="neutro chico" hidden>Salir</button>
+</header>
+
+<!-- Paso 1: ingreso con código -->
+<main id="vista-ingreso" class="centrado">
+  <div class="tarjeta">
+    <h1>Ingresa tu código</h1>
+    <p class="silencio">Tu profesor o profesora te entregó un código de 8 caracteres. Escríbelo tal como aparece.</p>
+    <div id="aviso-ingreso" class="aviso"></div>
+    <form id="form-ingreso">
+      <div class="campo">
+        <input id="codigo-entrada" name="codigo" maxlength="9" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" placeholder="ABCD-1234" required>
+      </div>
+      <button type="submit" style="width:100%">Entrar</button>
+    </form>
+  </div>
+  <p class="silencio" style="text-align:center">
+    ¿Eres docente? <a href="/profesor">Ingresa al panel</a>
+  </p>
+</main>
+
+<!-- Paso 2: pruebas disponibles -->
+<main id="vista-pruebas" class="contenido" hidden>
+  <h1 id="saludo"></h1>
+  <div id="aviso-pruebas" class="aviso"></div>
+  <div id="lista-pruebas" class="rejilla dos"></div>
+</main>
+
+<!-- Paso 3: rendir -->
+<main id="vista-examen" class="contenido" hidden>
+  <div class="tarjeta no-imprimir">
+    <div class="fila">
+      <div class="crece">
+        <h1 id="examen-titulo"></h1>
+        <div class="silencio" id="examen-avance"></div>
+      </div>
+      <button id="btn-enviar">Enviar prueba</button>
+    </div>
+    <div id="aviso-examen" class="aviso" style="margin-top:.8rem"></div>
+    <div class="navegador" id="navegador" style="margin-top:.8rem"></div>
+  </div>
+
+  <div id="instrucciones" class="tarjeta"></div>
+  <div id="secciones"></div>
+</main>
+
+<!-- Paso 4: enviado -->
+<main id="vista-fin" class="centrado" hidden>
+  <div class="tarjeta" style="text-align:center">
+    <div class="numero-grande" style="color:var(--verde)">✓</div>
+    <h1>Prueba enviada</h1>
+    <p class="silencio" id="mensaje-fin">Tus respuestas quedaron registradas. Ya puedes cerrar esta ventana.</p>
+    <div id="resultado-alumno"></div>
+    <button class="neutro" onclick="location.reload()">Volver al inicio</button>
+  </div>
+</main>
+
+<script type="module" src="/js/alumno.js"></script>
+</body>
+</html>

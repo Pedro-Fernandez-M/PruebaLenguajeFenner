@@ -1,0 +1,19 @@
+{
+  "name": "plataforma-dia",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plataforma de evaluacion diagnostica (DIA) - alumnos ingresan con codigo, profesores crean pruebas y obtienen informes",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": {
+    "start": "node --experimental-sqlite --no-warnings server.js",
+    "dev": "node --experimental-sqlite --no-warnings --watch server.js",
+    "seed": "node --experimental-sqlite --no-warnings scripts/seed.mjs",
+    "reset": "node --experimental-sqlite --no-warnings scripts/seed.mjs --reset",
+    "importar-nomina": "node --experimental-sqlite --no-warnings scripts/importar-nomina.mjs"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^5.1.0"
+  }
+}
