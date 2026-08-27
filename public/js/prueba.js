@@ -1,4 +1,4 @@
-import { api, $, esc, parrafos, mostrarAviso, fecha, barra, plural, ROMANO } from './comun.js';
+import { api, $, $$, esc, parrafos, mostrarAviso, fecha, barra, plural, ROMANO } from './comun.js';
 
 const recargar = () => window.recargarVista();
 
@@ -63,12 +63,15 @@ function cabecera(prueba, activa) {
 /* =========================================================== EDITOR DE PRUEBA */
 
 export async function vistaEditor(nodo, id) {
-  const datos = await api('/api/admin/pruebas/' + id);
+  const [datos, nomina] = await Promise.all([
+    api('/api/admin/pruebas/' + id),
+    api('/api/admin/alumnos'),
+  ]);
   const { prueba, textos, preguntas } = datos;
 
   nodo.innerHTML = cabecera(prueba, 'editor') +
     '<div id="aviso" class="aviso"></div>' +
-    seccionAjustes(prueba) +
+    seccionAjustes(prueba, nomina.cursos) +
     seccionTextos(textos) +
     seccionPreguntas(preguntas, textos, prueba);
 
@@ -78,7 +81,7 @@ export async function vistaEditor(nodo, id) {
   restaurarFoco();
 }
 
-function seccionAjustes(p) {
+function seccionAjustes(p, cursos) {
   return '<div class="tarjeta"><h2>Ajustes de la prueba</h2>' +
     '<div class="rejilla dos">' +
       '<div class="campo"><label>Título</label><input id="p-titulo" value="' + esc(p.titulo) + '"></div>' +
@@ -86,11 +89,10 @@ function seccionAjustes(p) {
       '<div class="campo"><label>Nivel</label><input id="p-nivel" value="' + esc(p.nivel) + '"></div>' +
       '<div class="campo"><label>Duración en minutos (vacío = sin límite)</label>' +
         '<input id="p-duracion" type="number" min="1" value="' + (p.duracion_min ?? '') + '"></div>' +
-      '<div class="campo"><label>Cursos habilitados (separados por coma; vacío = todos)</label>' +
-        '<input id="p-cursos" value="' + esc(p.cursos) + '" placeholder="2° A, 2° B"></div>' +
       '<div class="campo"><label>Estado</label><select id="p-estado">' +
         opciones(['borrador', 'publicada', 'cerrada'], p.estado) + '</select></div>' +
     '</div>' +
+    seccionCursos(p, cursos) +
     '<div class="campo"><label>Descripción</label><input id="p-descripcion" value="' + esc(p.descripcion) + '"></div>' +
     '<div class="campo"><label>Instrucciones para el estudiante</label>' +
       '<textarea id="p-instrucciones" rows="3">' + esc(p.instrucciones) + '</textarea></div>' +
@@ -108,7 +110,57 @@ function seccionAjustes(p) {
     '<div class="fila fin"><button id="p-guardar">Guardar ajustes</button></div></div>';
 }
 
+/**
+ * Cursos habilitados. Antes era un campo de texto separado por comas, donde una
+ * coma olvidada o un curso mal escrito dejaba fuera al curso entero sin aviso.
+ * Con seis cursos, marcarlos es mas seguro y mas rapido.
+ */
+function seccionCursos(p, cursos) {
+  const habilitados = String(p.cursos || '').split(',').map((c) => c.trim()).filter(Boolean);
+  const todos = habilitados.length === 0;
+
+  return '<div class="campo"><label>Cursos que pueden rendirla</label>' +
+    '<div class="fila" style="gap:.4rem">' +
+      '<label class="alternativa" style="margin:0">' +
+        '<input type="checkbox" id="p-todos-cursos"' + (todos ? ' checked' : '') + '>' +
+        '<span><strong>Todos los cursos</strong></span></label>' +
+      cursos.map((c) =>
+        '<label class="alternativa" style="margin:0">' +
+          '<input type="checkbox" data-curso-habilitado="' + esc(c.curso) + '"' +
+          (habilitados.includes(c.curso) ? ' checked' : '') + (todos ? ' disabled' : '') + '>' +
+          '<span>' + esc(c.curso) + ' <span class="silencio">(' + c.n + ')</span></span>' +
+        '</label>').join('') +
+    '</div>' +
+    '<p class="silencio" id="p-resumen-cursos"></p></div>';
+}
+
+function conectarCursos() {
+  const todos = $('#p-todos-cursos');
+  const casillas = () => $$('[data-curso-habilitado]');
+
+  const refrescar = () => {
+    casillas().forEach((c) => { c.disabled = todos.checked; });
+    const marcados = casillas().filter((c) => c.checked).map((c) => c.dataset.cursoHabilitado);
+    $('#p-resumen-cursos').textContent = todos.checked
+      ? 'La verán los estudiantes de cualquier curso.'
+      : (marcados.length
+        ? 'Solo la verán: ' + marcados.join(', ') + '.'
+        : 'Sin cursos marcados no la verá nadie. Marca al menos uno, o «Todos los cursos».');
+  };
+
+  todos.addEventListener('change', refrescar);
+  casillas().forEach((c) => c.addEventListener('change', refrescar));
+  refrescar();
+}
+
+/** Devuelve el valor que espera el servidor: lista separada por comas, vacía = todos. */
+function leerCursos() {
+  if ($('#p-todos-cursos').checked) return '';
+  return $$('[data-curso-habilitado]').filter((c) => c.checked).map((c) => c.dataset.cursoHabilitado).join(', ');
+}
+
 function conectarAjustes(prueba) {
+  conectarCursos();
   $('#p-guardar').addEventListener('click', async () => {
     await api('/api/admin/pruebas/' + prueba.id, {
       metodo: 'PUT',
@@ -117,7 +169,7 @@ function conectarAjustes(prueba) {
         asignatura: $('#p-asignatura').value,
         nivel: $('#p-nivel').value,
         duracion_min: $('#p-duracion').value === '' ? null : $('#p-duracion').value,
-        cursos: $('#p-cursos').value,
+        cursos: leerCursos(),
         estado: $('#p-estado').value,
         descripcion: $('#p-descripcion').value,
         instrucciones: $('#p-instrucciones').value,
