@@ -7,6 +7,20 @@
 import { SQLITE, POSTGRES } from './esquemas.js';
 
 const usarPostgres = !!process.env.DATABASE_URL;
+
+// En una plataforma serverless el disco es de solo lectura y efimero: SQLite no
+// solo falla al crear el archivo, sino que aunque funcionara perderia los datos
+// entre invocaciones. Sin DATABASE_URL hay que detenerse y decir por que, en vez
+// de caer al modo local y fallar despues con un ENOENT que no explica nada.
+const esServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+if (esServerless && !usarPostgres) {
+  throw new Error(
+    'Falta DATABASE_URL. En Vercel la plataforma necesita una base Postgres ' +
+    '(Supabase): el disco de la funcion es de solo lectura, asi que SQLite no ' +
+    'sirve. Define DATABASE_URL en Settings > Environment Variables y vuelve a desplegar.'
+  );
+}
+
 const motor = usarPostgres ? await import('./postgres.js') : await import('./sqlite.js');
 
 export const { all, get, run, exec, tx, cerrar, driver } = motor;
