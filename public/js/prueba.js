@@ -31,7 +31,6 @@ function restaurarFoco() {
 }
 
 const LETRAS = ['A', 'B', 'C', 'D', 'E'];
-const EJES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
 const TIPOS_TEXTO = [
   'Narración',
   'Poema',
@@ -187,17 +186,32 @@ function conectarTextos(prueba, textos) {
 
 /* ----------------------------------------------------------------- preguntas */
 
+const CRITERIOS_SUGERIDOS = [
+  'Localizar',
+  'Interpretar y relacionar',
+  'Reflexionar',
+  'Extracción de información',
+  'Construcción de significado',
+  'Incremento de vocabulario',
+];
+
 function seccionPreguntas(preguntas, textos, prueba) {
   const sinClasificar = preguntas.filter((p) => !p.eje).length;
   const sinClave = preguntas.filter((p) => p.tipo === 'alternativas' && !p.clave).length;
 
-  return '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
+  const usados = [...new Set(preguntas.map((p) => p.eje).filter(Boolean))];
+  const sugerencias = [...new Set([...usados, ...CRITERIOS_SUGERIDOS])];
+
+  return '<datalist id="criterios-sugeridos">' +
+      sugerencias.map((c) => '<option value="' + esc(c) + '">').join('') +
+    '</datalist>' +
+    '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
       '<button class="secundario" id="q-pegar">Cargar varias</button>' +
       '<button id="q-nueva">Agregar pregunta</button></div>' +
     (sinClasificar || sinClave
       ? '<div class="aviso info">' +
           (sinClave ? sinClave + ' pregunta(s) de alternativas sin clave marcada. ' : '') +
-          (sinClasificar ? sinClasificar + ' pregunta(s) sin eje de habilidad: no aparecerán en el gráfico por eje.' : '') +
+          (sinClasificar ? sinClasificar + ' pregunta(s) sin criterio: no aparecerán en el desglose del informe.' : '') +
         '</div>'
       : '') +
     '<div id="caja-pegar"></div>' +
@@ -258,16 +272,23 @@ function tarjetaPregunta(p, textos) {
     '<div class="campo"><label>Fragmento citado dentro de la pregunta (opcional)</label>' +
       '<textarea data-campo="cita" rows="2">' + esc(p.cita) + '</textarea></div>' +
 
-    '<h3>Criterios que evalúa</h3>' +
-    '<div class="rejilla tres">' +
-      '<div class="campo"><label>N° de OA</label><input data-campo="oa" value="' + esc(p.oa) + '" placeholder="3"></div>' +
-      '<div class="campo"><label>Eje de habilidad</label><select data-campo="eje">' +
-        '<option value="">— sin eje —</option>' + opciones(EJES, p.eje) + '</select></div>' +
-      '<div class="campo"><label>Tipo de texto</label><select data-campo="tipo_texto">' +
-        '<option value="">— del texto asociado —</option>' + opciones(TIPOS_TEXTO, p.tipo_texto) + '</select></div>' +
-    '</div>' +
-    '<div class="campo"><label>Indicador de evaluación</label>' +
-      '<input data-campo="indicador" value="' + esc(p.indicador) + '" placeholder="Infieren el conflicto en un texto narrativo."></div>' +
+    // Un solo campo: el criterio que mide la pregunta. Es lo que agrupa el
+    // informe. Se escribe libre porque cada prueba usa su propio conjunto
+    // (los ejes del DIA en unas, "Extraccion de informacion" en otras), con
+    // sugerencias de los ya usados para no tipear dos veces lo mismo.
+    '<div class="campo"><label>Criterio que evalúa esta pregunta</label>' +
+      '<input data-campo="eje" list="criterios-sugeridos" value="' + esc(p.eje) + '" ' +
+      'placeholder="Localizar, Interpretar y relacionar, Reflexionar…"></div>' +
+
+    '<details style="margin-bottom:.8rem"><summary class="silencio">Datos adicionales (opcionales)</summary>' +
+      '<div class="rejilla dos" style="margin-top:.6rem">' +
+        '<div class="campo"><label>N° de OA</label><input data-campo="oa" value="' + esc(p.oa) + '" placeholder="3"></div>' +
+        '<div class="campo"><label>Indicador de evaluación</label>' +
+          '<input data-campo="indicador" value="' + esc(p.indicador) + '" ' +
+          'placeholder="Descripción larga de lo que mide"></div>' +
+      '</div>' +
+      '<p class="silencio">El tipo de texto no se define aquí: se toma del texto asociado.</p>' +
+    '</details>' +
 
     '<div data-cuerpo>' + (esAlternativas ? cuerpoAlternativas : cuerpoDesarrollo) + '</div>' +
 
