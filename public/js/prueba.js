@@ -238,6 +238,32 @@ function conectarTextos(prueba, textos) {
 
 /* ----------------------------------------------------------------- preguntas */
 
+/**
+ * Criterios de la pregunta. Se marcan de una lista y admite mas de uno: una
+ * pregunta puede medir dos cosas a la vez, y entonces cuenta en ambos criterios
+ * del informe. La lista sale de los criterios ya usados en la prueba mas los
+ * habituales, y se puede ampliar sin salir de aqui.
+ */
+function bloqueCriterios(p, criterios) {
+  const marcados = String(p.eje || '').split(',').map((c) => c.trim()).filter(Boolean);
+  const lista = [...new Set([...criterios, ...marcados])];
+
+  return '<div class="campo" data-criterios><label>Criterio que evalúa esta pregunta</label>' +
+    '<div class="fila" style="gap:.4rem">' +
+      lista.map((c) =>
+        '<label class="alternativa" style="margin:0">' +
+          '<input type="checkbox" data-criterio="' + esc(c) + '"' +
+          (marcados.includes(c) ? ' checked' : '') + '>' +
+          '<span>' + esc(c) + '</span>' +
+        '</label>').join('') +
+    '</div>' +
+    '<div class="fila" style="margin-top:.4rem">' +
+      '<input data-criterio-nuevo placeholder="Agregar otro criterio…" style="max-width:280px">' +
+      '<button type="button" class="neutro chico" data-agregar-criterio>Agregar</button>' +
+      '<span class="silencio" data-resumen-criterios></span>' +
+    '</div></div>';
+}
+
 const CRITERIOS_SUGERIDOS = [
   'Localizar',
   'Interpretar y relacionar',
@@ -248,16 +274,16 @@ const CRITERIOS_SUGERIDOS = [
 ];
 
 function seccionPreguntas(preguntas, textos, prueba) {
+  // (criterios se calcula abajo y se pasa a cada tarjeta)
   const sinClasificar = preguntas.filter((p) => !p.eje).length;
   const sinClave = preguntas.filter((p) => p.tipo === 'alternativas' && !p.clave).length;
 
-  const usados = [...new Set(preguntas.map((p) => p.eje).filter(Boolean))];
-  const sugerencias = [...new Set([...usados, ...CRITERIOS_SUGERIDOS])];
+  // Los criterios ya usados en la prueba van primero: son los de esta evaluacion.
+  const usados = [...new Set(preguntas.flatMap((p) =>
+    String(p.eje || '').split(',').map((c) => c.trim()).filter(Boolean)))];
+  const criterios = [...new Set([...usados, ...CRITERIOS_SUGERIDOS])];
 
-  return '<datalist id="criterios-sugeridos">' +
-      sugerencias.map((c) => '<option value="' + esc(c) + '">').join('') +
-    '</datalist>' +
-    '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
+  return '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
       '<button id="q-nueva">Agregar pregunta</button></div>' +
     (sinClasificar || sinClave
       ? '<div class="aviso info">' +
@@ -265,12 +291,12 @@ function seccionPreguntas(preguntas, textos, prueba) {
           (sinClasificar ? sinClasificar + ' pregunta(s) sin criterio: no aparecerán en el desglose del informe.' : '') +
         '</div>'
       : '') +
-    preguntas.map((p) => tarjetaPregunta(p, textos)).join('') +
+    preguntas.map((p) => tarjetaPregunta(p, textos, criterios)).join('') +
     (preguntas.length ? '' : '<p class="silencio">Todavía no hay preguntas.</p>') +
     '</div>';
 }
 
-function tarjetaPregunta(p, textos) {
+function tarjetaPregunta(p, textos, criterios) {
   const esAlternativas = p.tipo === 'alternativas';
   const resumen = (p.enunciado || '(sin enunciado)').slice(0, 90);
 
@@ -315,9 +341,7 @@ function tarjetaPregunta(p, textos) {
     // informe. Se escribe libre porque cada prueba usa su propio conjunto
     // (los ejes del DIA en unas, "Extraccion de informacion" en otras), con
     // sugerencias de los ya usados para no tipear dos veces lo mismo.
-    '<div class="campo"><label>Criterio que evalúa esta pregunta</label>' +
-      '<input data-campo="eje" list="criterios-sugeridos" value="' + esc(p.eje) + '" ' +
-      'placeholder="Localizar, Interpretar y relacionar, Reflexionar…"></div>' +
+    bloqueCriterios(p, criterios) +
 
     '<details style="margin-bottom:.8rem"><summary class="silencio">Datos adicionales (opcionales)</summary>' +
       '<div class="rejilla dos" style="margin-top:.6rem">' +
@@ -338,9 +362,21 @@ function tarjetaPregunta(p, textos) {
     '</div></details>';
 }
 
+/** Aviso bajo las casillas: cuantos criterios lleva la pregunta. */
+function resumir(caja) {
+  const marcados = [...caja.querySelectorAll('[data-criterio]')].filter((c) => c.checked).length;
+  const nota = caja.querySelector('[data-resumen-criterios]');
+  if (!nota) return;
+  nota.textContent = marcados === 0
+    ? 'Sin criterio: no aparecerá en el desglose del informe.'
+    : (marcados === 1 ? '' : marcados + ' criterios: contará en los ' + marcados + '.');
+}
+
 function leerPregunta(caja) {
   const cuerpo = {};
   caja.querySelectorAll('[data-campo]').forEach((c) => { cuerpo[c.dataset.campo] = c.value; });
+  cuerpo.eje = [...caja.querySelectorAll('[data-criterio]')]
+    .filter((c) => c.checked).map((c) => c.dataset.criterio).join(', ');
   cuerpo.texto_id = cuerpo.texto_id ? Number(cuerpo.texto_id) : null;
 
   if (cuerpo.tipo === 'alternativas') {
@@ -378,6 +414,39 @@ async function agregarPregunta(prueba, numero, anterior = null) {
 
 function conectarPreguntas(prueba, textos, preguntas) {
   $('#q-nueva').addEventListener('click', () => agregarPregunta(prueba, preguntas.length + 1));
+
+  // Agregar un criterio que no estaba en la lista, sin salir de la pregunta.
+  document.querySelectorAll('[data-agregar-criterio]').forEach((boton) => {
+    const caja = boton.closest('[data-criterios]');
+    const entrada = caja.querySelector('[data-criterio-nuevo]');
+
+    const agregar = () => {
+      const nombre = entrada.value.trim();
+      if (!nombre) return;
+      const yaEsta = [...caja.querySelectorAll('[data-criterio]')]
+        .find((c) => c.dataset.criterio.toLowerCase() === nombre.toLowerCase());
+      if (yaEsta) { yaEsta.checked = true; entrada.value = ''; return resumir(caja); }
+
+      const etiqueta = document.createElement('label');
+      etiqueta.className = 'alternativa';
+      etiqueta.style.margin = '0';
+      etiqueta.innerHTML = '<input type="checkbox" checked data-criterio="' + esc(nombre) + '"><span>' + esc(nombre) + '</span>';
+      caja.querySelector('.fila').appendChild(etiqueta);
+      etiqueta.querySelector('input').addEventListener('change', () => resumir(caja));
+      entrada.value = '';
+      resumir(caja);
+    };
+
+    boton.addEventListener('click', agregar);
+    entrada.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); agregar(); }
+    });
+  });
+
+  document.querySelectorAll('[data-criterios]').forEach((caja) => {
+    caja.querySelectorAll('[data-criterio]').forEach((c) => c.addEventListener('change', () => resumir(caja)));
+    resumir(caja);
+  });
 
   document.querySelectorAll('[data-guardar-pregunta]').forEach((boton) => {
     boton.addEventListener('click', async () => {

@@ -21,6 +21,18 @@ export const TIPOS_TEXTO = [
 // ni aparecen en el informe, asi que ambos formatos conviven sin configurar nada.
 export const LETRAS = ['A', 'B', 'C', 'D', 'E'];
 
+/**
+ * Criterios que evalua una pregunta. Se guardan separados por coma porque una
+ * misma pregunta puede medir mas de uno, y entonces cuenta en todos: su puntaje
+ * suma al logro de cada criterio que declara.
+ */
+export function criteriosDe(pregunta) {
+  return String(pregunta?.eje || '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
 // La ficha tecnica fija el codigo 2 como respuesta correcta, 1 como parcial y 0
 // como incorrecta (incluida la respuesta en blanco).
 export function puntajeDesarrollo(codigo, puntajeMaximo) {
@@ -252,7 +264,9 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     }
 
     fila.logro = pct(obtenidoPregunta, maximoPregunta);
-    sumar(acumuladoEje, pregunta.eje, obtenidoPregunta, maximoPregunta);
+    for (const criterio of criteriosDe(pregunta)) {
+      sumar(acumuladoEje, criterio, obtenidoPregunta, maximoPregunta);
+    }
     sumar(acumuladoTipo, pregunta.tipo_texto, obtenidoPregunta, maximoPregunta);
     detallePreguntas.push(fila);
   }
@@ -265,7 +279,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     return {
       eje,
       porcentaje: pct(a.obtenido, a.maximo),
-      preguntas: preguntas.filter((p) => p.eje === eje).length,
+      preguntas: preguntas.filter((p) => criteriosDe(p).includes(eje)).length,
     };
   });
 
@@ -337,11 +351,11 @@ export async function informeDeAlumno(intentoId) {
   const detalle = preguntas.map((p) => {
     const r = mapa.get(p.id) || null;
     const puntaje = r && r.puntaje != null ? r.puntaje : 0;
-    if (p.eje) {
-      const a = acumuladoEje.get(p.eje) || { obtenido: 0, maximo: 0 };
+    for (const criterio of criteriosDe(p)) {
+      const a = acumuladoEje.get(criterio) || { obtenido: 0, maximo: 0 };
       a.obtenido += puntaje;
       a.maximo += p.puntaje;
-      acumuladoEje.set(p.eje, a);
+      acumuladoEje.set(criterio, a);
     }
     return {
       numero: p.numero,
