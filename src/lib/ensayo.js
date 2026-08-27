@@ -130,7 +130,10 @@ export function convertirEnsayo(buffer) {
   // encabezado y la primera pregunta.
   function cerrarTexto() {
     if (!textoActual || textoActual.cerrado) return;
-    const cuerpo = acumuladoTexto.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    // Se unen con línea en blanco para que cada párrafo del Word siga siendo un
+    // párrafo al leerlo; si no, el texto le llega al estudiante como un bloque
+    // corrido de miles de caracteres.
+    const cuerpo = acumuladoTexto.join('\n\n').trim();
     textoActual.contenido = cuerpo;
     textoActual.tipo_texto = adivinarTipo(cuerpo);
     textoActual.cerrado = true;
@@ -188,8 +191,15 @@ export function convertirEnsayo(buffer) {
       textos.pop();
       textoActual = textos[textos.length - 1] || null;
     } else if (esperandoTitulo && limpia) {
-      textoActual.titulo = 'Texto ' + textos.length + ' — ' + limpia.slice(0, 70);
       esperandoTitulo = false;
+      // Una línea muy larga no es un título sino el comienzo del texto: se deja
+      // en el cuerpo y el texto conserva su nombre genérico.
+      if (limpia.length <= 120) {
+        // El título se muestra aparte como encabezado, así que no se repite en
+        // el cuerpo: si no, el estudiante lo lee dos veces seguidas.
+        textoActual.titulo = 'Texto ' + textos.length + ' — ' + limpia;
+        continue;
+      }
       acumuladoTexto.push(limpia);
       continue;
     }
