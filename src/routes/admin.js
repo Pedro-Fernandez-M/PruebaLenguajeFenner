@@ -157,8 +157,9 @@ router.post('/pruebas/:id/duplicar', async (req, res) => {
 
 /**
  * Crea una prueba completa a partir de un ensayo en Word.
- * Queda siempre en borrador y sin claves: el .docx es la versión del estudiante,
- * así que el docente debe marcar la alternativa correcta antes de publicar.
+ * Queda siempre en borrador. Si el documento es la version del docente, con la
+ * alternativa correcta pintada de otro color, esa clave se importa; si es la del
+ * estudiante, las preguntas quedan sin clave para marcarlas en el editor.
  */
 router.post('/pruebas/importar-docx', async (req, res) => {
   let convertido;
@@ -203,10 +204,14 @@ router.post('/pruebas/importar-docx', async (req, res) => {
       const asociado = p.texto_indice !== null ? idsTextos[p.texto_indice] : null;
       const creada = await db.run(
         'INSERT INTO preguntas (prueba_id, texto_id, numero, tipo, enunciado, tipo_texto, clave, puntaje) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, NULL, ?)',
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [
           id, asociado ? asociado.id : null, p.numero, p.tipo, p.enunciado,
-          asociado ? asociado.tipo : '', p.tipo === 'desarrollo' ? 2 : 1,
+          asociado ? asociado.tipo : '',
+          // La pauta viene marcada con color en la version del docente; si el
+          // documento no la trae, queda en null para que la marque a mano.
+          p.tipo === 'alternativas' && LETRAS.includes(p.clave) ? p.clave : null,
+          p.tipo === 'desarrollo' ? 2 : 1,
         ]
       );
       await guardarOpcionesYRubricas(creada.id, p, p.tipo);
@@ -218,6 +223,7 @@ router.post('/pruebas/importar-docx', async (req, res) => {
     id: pruebaId,
     textos: textos.length,
     preguntas: preguntas.length,
+    con_clave: preguntas.filter((p) => p.clave).length,
     incidencias,
   });
 });

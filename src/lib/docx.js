@@ -1,6 +1,6 @@
 // Lector de .docx sin dependencias: el archivo es un ZIP con XML adentro.
-// Se reutiliza el descompresor de xlsx.js y se extraen los párrafos en orden,
-// que es lo único que necesita el importador de ensayos.
+// Se descomprime el ZIP a mano y se extraen los párrafos en orden, junto con las
+// marcas de formato que hacen falta para interpretar una pauta de corrección.
 import zlib from 'node:zlib';
 
 function abrirZip(buffer) {
@@ -44,26 +44,8 @@ const desescapar = (t) => t
   .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
   .replace(/&(amp|lt|gt|quot|apos);/g, (m) => ENTIDADES[m]);
 
-/** Devuelve los párrafos del documento como texto plano, en orden de lectura. */
-export function parrafosDeDocx(buffer) {
-  const leer = abrirZip(buffer);
-  const xml = (leer('word/document.xml') || Buffer.alloc(0)).toString('utf8');
-
-  return [...xml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)]
-    .map((m) => {
-      let cuerpo = m[1];
-      // Los tabuladores separan columnas de alternativas: se conservan.
-      cuerpo = cuerpo.replace(/<w:tab\b[^>]*\/>/g, '\t');
-      cuerpo = cuerpo.replace(/<w:br\b[^>]*\/>/g, '\n');
-      const partes = [...cuerpo.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((t) => desescapar(t[1]));
-      // El texto de w:t va intercalado con los tabuladores ya convertidos.
-      const soloTexto = partes.join('');
-      const tabs = (cuerpo.match(/\t/g) || []).length;
-      return tabs && soloTexto ? reconstruirConTabs(cuerpo) : soloTexto;
-    })
-    .map((p) => p.replace(/ /g, ' ').replace(/[ \t]+$/g, ''))
-    .filter((p, i, todos) => p.trim() !== '' || (todos[i - 1] || '').trim() !== '');
-}
+// Word usa espacios duros con frecuencia; se normalizan a espacio corriente.
+const ESPACIO_DURO = new RegExp(String.fromCharCode(160), 'g');
 
 /** Rearma el párrafo respetando dónde caían los tabuladores entre los w:t. */
 function reconstruirConTabs(cuerpo) {
@@ -74,4 +56,50 @@ function reconstruirConTabs(cuerpo) {
     salida += m[0] === '\t' ? '\t' : desescapar(m[1]);
   }
   return salida;
+}
+
+/**
+ * Devuelve los párrafos con su texto y las marcas de formato relevantes.
+ *
+ * Una pauta de corrección en Word suele venir como la alternativa correcta
+ * pintada de otro color o resaltada, así que ese dato hay que conservarlo:
+ * es la clave de la pregunta.
+ *
+ * @returns {{ texto: string, color: string, resaltado: boolean, negrita: boolean }[]}
+ */
+export function parrafosConFormato(buffer) {
+  const leer = abrirZip(buffer);
+  const xml = (leer('word/document.xml') || Buffer.alloc(0)).toString('utf8');
+
+  return [...xml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)]
+    .map((m) => {
+      const original = m[1];
+      // Los tabuladores separan columnas de alternativas: se conservan.
+      const cuerpo = original
+        .replace(/<w:tab\b[^>]*\/>/g, '\t')
+        .replace(/<w:br\b[^>]*\/>/g, '\n');
+
+      const partes = [...cuerpo.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((t) => desescapar(t[1]));
+      const soloTexto = partes.join('');
+      const tabs = (cuerpo.match(/\t/g) || []).length;
+      const texto = (tabs && soloTexto ? reconstruirConTabs(cuerpo) : soloTexto)
+        .replace(ESPACIO_DURO, ' ')
+        .replace(/[ \t]+$/g, '');
+
+      const color = (original.match(/<w:color\s+w:val="([0-9A-Fa-f]{6})"/) || [])[1] || '';
+
+      return {
+        texto,
+        // El negro es el color por defecto: no marca nada.
+        color: /^000000$/i.test(color) ? '' : color.toUpperCase(),
+        resaltado: /<w:highlight\s/.test(original),
+        negrita: /<w:b\s*\/>|<w:b\s/.test(original),
+      };
+    })
+    .filter((p, i, todos) => p.texto.trim() !== '' || (todos[i - 1]?.texto || '').trim() !== '');
+}
+
+/** Devuelve los párrafos del documento como texto plano, en orden de lectura. */
+export function parrafosDeDocx(buffer) {
+  return parrafosConFormato(buffer).map((p) => p.texto);
 }
