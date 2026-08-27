@@ -228,6 +228,40 @@ router.post('/pruebas/importar-docx', async (req, res) => {
   });
 });
 
+/**
+ * La prueba tal como la vera el estudiante. Sirve para revisarla antes de
+ * publicarla sin tener que ocupar el codigo de un alumno ni crear un intento.
+ * A diferencia de la vista del alumno, aqui SI viaja la clave: quien mira es
+ * quien la definio.
+ */
+router.get('/pruebas/:id/vista-previa', async (req, res) => {
+  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
+  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
+
+  const textos = await db.all(
+    'SELECT id, orden, titulo, autor, fuente, tipo_texto, contenido FROM textos WHERE prueba_id = ? ORDER BY orden, id',
+    [prueba.id]
+  );
+  const preguntas = await db.all(
+    'SELECT id, texto_id, numero, tipo, enunciado, cita, eje, clave, puntaje FROM preguntas WHERE prueba_id = ? ORDER BY numero',
+    [prueba.id]
+  );
+  const opciones = await db.all(
+    'SELECT o.id, o.pregunta_id, o.letra, o.contenido FROM opciones o ' +
+      'JOIN preguntas p ON p.id = o.pregunta_id WHERE p.prueba_id = ? ORDER BY o.letra',
+    [prueba.id]
+  );
+
+  res.json({
+    prueba,
+    textos,
+    preguntas: preguntas.map((p) => ({
+      ...p,
+      opciones: opciones.filter((o) => o.pregunta_id === p.id && String(o.contenido || '').trim()),
+    })),
+  });
+});
+
 /* ------------------------------------------------------------------- textos */
 
 router.post('/pruebas/:id/textos', async (req, res) => {

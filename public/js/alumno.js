@@ -47,7 +47,11 @@ $('#codigo-entrada').addEventListener('input', (evento) => {
 });
 
 $('#btn-salir').addEventListener('click', async () => {
-  if (examen && !confirm('Si sales ahora, tu prueba queda a medio responder. ¿Salir de todas formas?')) return;
+  const aviso = 'Cerrarás tu sesión. Tus respuestas quedan guardadas y puedes volver a entrar con tu código.\n\n¿Salir?';
+  if (examen && !confirm(aviso)) return;
+  // Se limpia antes de recargar para que no salte tambien el aviso del navegador
+  // y el alumno tenga que confirmar dos veces.
+  examen = null;
   await api('/api/alumno/salir', { cuerpo: {} });
   location.reload();
 });
@@ -258,6 +262,28 @@ function iniciarTemporizador(segundos) {
 /* ---------------------------------------------------------------------- envío */
 
 $('#btn-enviar').addEventListener('click', () => enviar(false));
+
+// Salir sin entregar. Antes la unica salida era enviar la prueba o cerrar la
+// sesion completa, asi que quien entraba por error quedaba atrapado.
+$('#btn-pausar').addEventListener('click', async () => {
+  if (!examen) return;
+  const faltan = examen.preguntas.filter((p) => !respondida(p)).length;
+  const aviso = 'Vas a salir sin entregar.\n\n'
+    + 'Tus respuestas quedan guardadas y puedes volver a entrar con tu código para continuar'
+    + (faltan ? ' (te faltan ' + faltan + ' preguntas).' : '.')
+    + (restante === null || restante === undefined ? '' : '\n\nOjo: el tiempo sigue corriendo.')
+    + '\n\n¿Salir de la prueba?';
+  if (!confirm(aviso)) return;
+
+  // Se fuerza el guardado de lo que quedara en el retardo del autoguardado.
+  for (const [id, tiempo] of pendientesGuardado) { clearTimeout(tiempo); await guardar(id); }
+  pendientesGuardado.clear();
+
+  clearInterval(temporizador);
+  examen = null;
+  $('#reloj-caja').innerHTML = '';
+  await cargarPruebas();
+});
 
 async function enviar(automatico) {
   if (!examen) return;

@@ -24,7 +24,9 @@ const RE_ENCABEZADO_TEXTO = /^\s*TEXTO\s*(?:N[°º]?\s*)?(\d+)\s*[:.\-—]?\s*(.
 const RE_ENCABEZADO_LECTURA = /^\s*(?:lee|lea)\b[^.]*\btexto\b[^.]*\bpreguntas?\b/i;
 
 const RE_PREGUNTA = /^\s*(\d{1,2})\s*[.\-—)]+\s*(.*)$/;
-const RE_ALTERNATIVA = /(?:^|[\t\s])([a-eA-E])\s*[.)]\s*-?\s+/g;
+// Acepta "A. texto", "a) texto", "a.- texto" y "a.-texto": esta última, sin
+// espacio tras el guion, es frecuente en los documentos del liceo y se perdía.
+const RE_ALTERNATIVA = /(?:^|[\t\s])([a-eA-E])\s*[.)](?:\s*-\s*|\s+)/g;
 
 const TIPOS = {
   dramatico: 'Texto dramático',
@@ -105,6 +107,7 @@ export function convertirEnsayo(buffer) {
   const textos = [];
   const preguntas = [];
   const incidencias = [];
+  const omitidas = [];
 
   let textoActual = null;
   let acumuladoTexto = [];
@@ -146,9 +149,13 @@ export function convertirEnsayo(buffer) {
     const resultado = extraerAlternativas(acumuladoPregunta);
 
     if (!resultado) {
-      preguntaActual.tipo = 'desarrollo';
-      preguntaActual.opciones = [];
-      incidencias.push('Pregunta ' + preguntaActual.numero + ': no se reconocieron alternativas, quedó como pregunta de desarrollo.');
+      // La plataforma solo evalúa preguntas de alternativas. Una sin opciones no
+      // se puede corregir ni contar, así que se deja fuera y se avisa cuál fue:
+      // colarla vacía daría una prueba que parece completa y no lo está.
+      omitidas.push(preguntaActual.numero);
+      preguntaActual = null;
+      acumuladoPregunta = [];
+      return;
     } else {
       const { opciones, marcada } = resultado;
       const faltantes = ['A', 'B', 'C', 'D'].filter((l) => !opciones[l]);
@@ -237,6 +244,13 @@ export function convertirEnsayo(buffer) {
   for (const p of preguntas) {
     if (vistos.has(p.numero)) incidencias.push('El número de pregunta ' + p.numero + ' aparece repetido.');
     vistos.add(p.numero);
+  }
+
+  if (omitidas.length) {
+    incidencias.push(
+      'Quedaron fuera ' + omitidas.length + ' pregunta(s) sin alternativas en el documento (N° ' +
+      omitidas.join(', ') + '). Si corresponden a la prueba, hay que agregarlas a mano con sus opciones.'
+    );
   }
 
   const conClave = preguntas.filter((p) => p.clave).length;

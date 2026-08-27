@@ -48,8 +48,8 @@ function opciones(lista, seleccionado) {
 function cabecera(prueba, activa) {
   const enlaces = [
     ['editor', 'Editor'],
+    ['vista', 'Ver la prueba'],
     ['monitor', 'Monitor'],
-    ['correccion', 'Corrección'],
     ['informe', 'Informe'],
   ];
   return '<div class="fila no-imprimir"><a href="#pruebas" class="silencio">← Pruebas</a></div>' +
@@ -236,16 +236,6 @@ function tarjetaPregunta(p, textos) {
       '</div>';
     }).join('');
 
-  const cuerpoDesarrollo =
-    '<label>Pauta de corrección</label>' +
-    '<p class="silencio">Describe qué debe cumplir la respuesta en cada código. Es la pauta que verás al corregir.</p>' +
-    [[2, 'Código 2 — respuesta correcta'], [1, 'Código 1 — parcialmente correcta'], [0, 'Código 0 — incorrecta']]
-      .map(([codigo, titulo]) => {
-        const r = (p.rubricas || []).find((x) => Number(x.codigo) === codigo) || { descripcion: '', ejemplos: '' };
-        return '<div class="campo"><label>' + titulo + '</label>' +
-          '<textarea data-rubrica="' + codigo + '" rows="3" placeholder="Descripción">' + esc(r.descripcion) + '</textarea>' +
-          '<textarea data-ejemplo="' + codigo + '" rows="2" placeholder="Ejemplos de respuesta">' + esc(r.ejemplos) + '</textarea></div>';
-      }).join('');
 
   return '<details class="tarjeta" style="margin:.6rem 0" data-pregunta="' + p.id + '">' +
     '<summary><strong>' + p.numero + '.</strong> ' + esc(resumen) +
@@ -257,10 +247,9 @@ function tarjetaPregunta(p, textos) {
 
     '<div class="rejilla dos" style="margin-top:.8rem">' +
       '<div class="campo"><label>N° de pregunta</label><input data-campo="numero" type="number" min="1" value="' + p.numero + '"></div>' +
-      '<div class="campo"><label>Tipo</label><select data-campo="tipo">' +
-        '<option value="alternativas"' + (esAlternativas ? ' selected' : '') + '>Alternativas (A–D)</option>' +
-        '<option value="desarrollo"' + (esAlternativas ? '' : ' selected') + '>Desarrollo (código 2/1/0)</option>' +
-      '</select></div>' +
+      // La plataforma evalua solo preguntas de alternativas: el tipo va fijo y
+      // no se ofrece como opcion.
+      '<input type="hidden" data-campo="tipo" value="alternativas">' +
       '<div class="campo"><label>Texto asociado</label><select data-campo="texto_id">' +
         '<option value="">— sin texto —</option>' +
         textos.map((t) => '<option value="' + t.id + '"' + (t.id === p.texto_id ? ' selected' : '') + '>' + esc(t.titulo) + '</option>').join('') +
@@ -290,7 +279,7 @@ function tarjetaPregunta(p, textos) {
       '<p class="silencio">El tipo de texto no se define aquí: se toma del texto asociado.</p>' +
     '</details>' +
 
-    '<div data-cuerpo>' + (esAlternativas ? cuerpoAlternativas : cuerpoDesarrollo) + '</div>' +
+    '<div data-cuerpo>' + cuerpoAlternativas + '</div>' +
 
     '<div class="fila fin" style="margin-top:.8rem">' +
       '<button class="peligro chico" data-borrar-pregunta="' + p.id + '">Eliminar</button>' +
@@ -370,19 +359,6 @@ function conectarPreguntas(prueba, textos, preguntas) {
       recargar();
     });
   });
-
-  // Cambiar el tipo redibuja el cuerpo sin perder lo escrito arriba.
-  document.querySelectorAll('[data-campo="tipo"]').forEach((selector) => {
-    selector.addEventListener('change', () => {
-      const caja = selector.closest('[data-pregunta]');
-      const p = preguntas.find((x) => x.id === Number(caja.dataset.pregunta));
-      const provisional = { ...p, tipo: selector.value, opciones: p.opciones, rubricas: p.rubricas };
-      const html = tarjetaPregunta(provisional, textos);
-      const nueva = document.createElement('div');
-      nueva.innerHTML = html;
-      caja.querySelector('[data-cuerpo]').replaceWith(nueva.querySelector('[data-cuerpo]'));
-    });
-  });
 }
 
 const PLANTILLA_LOTE = `1|Localizar|3|Localizan información explícita relevante en un texto narrativo.|D|¿Quién es el dueño de la taberna?|Chispa.|Monda.|Pincha.|Ponce.
@@ -393,7 +369,7 @@ function formularioLote(caja, prueba, textos) {
     '<div class="tarjeta"><h3>Cargar varias preguntas de una vez</h3>' +
       '<p class="silencio">Una línea por pregunta, con los campos separados por barra vertical <code>|</code>:<br>' +
       '<code>N°|eje|OA|indicador|clave|enunciado|A|B|C|D</code><br>' +
-      'Para una pregunta de desarrollo, escribe <code>DES</code> en la clave y omite las alternativas.</p>' +
+      'La clave es la letra de la alternativa correcta.</p>' +
       '<div class="campo"><label>Texto al que se asocian</label><select id="lote-texto">' +
         '<option value="">— sin texto —</option>' +
         textos.map((t) => '<option value="' + t.id + '">' + esc(t.titulo) + '</option>').join('') +
@@ -409,17 +385,16 @@ function formularioLote(caja, prueba, textos) {
     const textoId = $('#lote-texto').value ? Number($('#lote-texto').value) : null;
     const lista = $('#lote-datos').value.split('\n').map((linea) => linea.trim()).filter(Boolean).map((linea) => {
       const c = linea.split('|').map((x) => x.trim());
-      const desarrollo = (c[4] || '').toUpperCase() === 'DES';
       return {
         numero: Number(c[0]) || undefined,
         eje: c[1] || '',
         oa: c[2] || '',
         indicador: c[3] || '',
-        tipo: desarrollo ? 'desarrollo' : 'alternativas',
-        clave: desarrollo ? null : (c[4] || '').toUpperCase(),
+        tipo: 'alternativas',
+        clave: (c[4] || '').toUpperCase(),
         enunciado: c[5] || '',
         texto_id: textoId,
-        opciones: desarrollo ? [] : LETRAS.map((letra, i) => ({ letra, contenido: c[6 + i] || '' })),
+        opciones: LETRAS.map((letra, i) => ({ letra, contenido: c[6 + i] || '' })),
       };
     });
 
@@ -501,74 +476,6 @@ const etiquetaNivel = (n) => {
   return '<span class="etiqueta ' + clase + '">Nivel ' + (ROMANO[n] || '—') + '</span>';
 };
 
-/* =============================================================== CORRECCIÓN */
-
-export async function vistaCorreccion(nodo, id) {
-  const datos = await api('/api/admin/pruebas/' + id + '/correccion');
-
-  if (!datos.bloques.length) {
-    nodo.innerHTML = cabecera(datos.prueba, 'correccion') +
-      '<div class="tarjeta"><p>Esta prueba no tiene preguntas de desarrollo.</p>' +
-      '<p class="silencio">Las preguntas de alternativas se corrigen solas al momento de entregar.</p></div>';
-    return;
-  }
-
-  nodo.innerHTML = cabecera(datos.prueba, 'correccion') +
-    '<div id="aviso" class="aviso"></div>' +
-    '<p class="silencio">Lee cada respuesta y asígnale un código. Las respuestas en blanco ya quedaron en código 0. ' +
-      'El puntaje y el nivel de logro se recalculan al instante.</p>' +
-    datos.bloques.map(bloqueCorreccion).join('');
-
-  nodo.querySelectorAll('[data-codigo]').forEach((boton) => {
-    boton.addEventListener('click', async () => {
-      const grupo = boton.closest('[data-respuesta]');
-      await api('/api/admin/respuestas/' + grupo.dataset.respuesta + '/codigo', {
-        cuerpo: { codigo: Number(boton.dataset.codigo) },
-      });
-      grupo.querySelectorAll('[data-codigo]').forEach((b) => b.className = 'neutro chico');
-      boton.className = (boton.dataset.codigo === '2' ? 'secundario' : 'neutro') + ' chico';
-      boton.style.background = ['#fbeaea', '#fdf3e0', '#e6f4ec'][Number(boton.dataset.codigo)];
-      grupo.querySelector('[data-estado]').textContent = 'Código ' + boton.dataset.codigo + ' guardado';
-    });
-  });
-}
-
-function bloqueCorreccion(bloque) {
-  const { pregunta, rubricas, respuestas } = bloque;
-  const pendientes = respuestas.filter((r) => r.codigo_rubrica === null || r.codigo_rubrica === undefined).length;
-
-  return '<div class="tarjeta">' +
-    '<div class="fila"><h2 class="crece">Pregunta ' + pregunta.numero + '</h2>' +
-      (pendientes ? '<span class="etiqueta ambar">' + pendientes + ' sin corregir</span>'
-                  : '<span class="etiqueta verde">Todas corregidas</span>') + '</div>' +
-    '<p>' + esc(pregunta.enunciado) + '</p>' +
-    '<p class="silencio">' + esc(pregunta.eje) + (pregunta.oa ? ' · OA ' + esc(pregunta.oa) : '') + '</p>' +
-
-    '<details style="margin-bottom:1rem"><summary><strong>Pauta de corrección</strong></summary>' +
-      rubricas.map((r) =>
-        '<div class="campo"><label>Código ' + r.codigo + '</label>' +
-          '<div class="silencio">' + parrafos(r.descripcion || '(sin descripción)') +
-          (r.ejemplos ? '<em>Ejemplos:</em>' + parrafos(r.ejemplos) : '') + '</div></div>').join('') +
-    '</details>' +
-
-    (respuestas.length
-      ? respuestas.map((r) => {
-          const actual = r.codigo_rubrica;
-          const botones = [2, 1, 0].map((codigo) =>
-            '<button class="neutro chico" data-codigo="' + codigo + '"' +
-              (actual === codigo ? ' style="background:' + ['#fbeaea', '#fdf3e0', '#e6f4ec'][codigo] + '"' : '') +
-              '>Código ' + codigo + '</button>').join('');
-          return '<div class="pregunta" data-respuesta="' + r.id + '">' +
-            '<div class="fila"><strong class="crece">' + esc(r.nombre) + '</strong>' +
-              '<span class="silencio" data-estado>' + (actual === null || actual === undefined ? 'Sin corregir' : 'Código ' + actual) + '</span></div>' +
-            '<div class="cita">' + esc(r.respuesta_texto || '(en blanco)') + '</div>' +
-            '<div class="fila fin">' + botones + '</div>' +
-          '</div>';
-        }).join('')
-      : '<p class="silencio">Aún no hay respuestas entregadas para esta pregunta.</p>') +
-  '</div>';
-}
-
 /* ================================================================== INFORME */
 
 export async function vistaInforme(nodo, id) {
@@ -594,10 +501,6 @@ export async function vistaInforme(nodo, id) {
       '<button onclick="window.print()">Imprimir</button>' +
     '</div>' +
 
-    (r.pendientes_correccion
-      ? '<div class="aviso info">Hay ' + r.pendientes_correccion + ' respuesta(s) de desarrollo sin corregir. ' +
-        'Mientras no se corrijan, no suman puntaje y el nivel de logro puede subir después.</div>'
-      : '') +
 
     '<div class="rejilla tres">' +
       tarjetaDato('Estudiantes evaluados', r.total_alumnos, r.en_curso ? '<span class="silencio">' + r.en_curso + ' aún rindiendo</span>' : '') +
@@ -754,8 +657,80 @@ export async function vistaInformeAlumno(nodo, intentoId) {
           '<td>' + (p.tipo === 'alternativas' ? esc(p.clave || '') : '—') + '</td>' +
           '<td>' + (p.correcta ? '<span class="etiqueta verde">✓</span>' : '<span class="etiqueta roja">✗</span>') + '</td>' +
         '</tr>' +
-        (p.tipo === 'desarrollo' && p.respuesta_texto
-          ? '<tr><td></td><td colspan="5"><div class="cita">' + esc(p.respuesta_texto) + '</div></td></tr>'
-          : '')).join('') +
+        '').join('') +
       '</tbody></table></div>';
+}
+
+/* ============================================================ VISTA PREVIA */
+
+/**
+ * La prueba tal como la vera el estudiante, con la clave destacada.
+ * Permite revisarla antes de publicar sin ocupar el codigo de un alumno.
+ */
+export async function vistaPrevia(nodo, id) {
+  const r = await api('/api/admin/pruebas/' + id + '/vista-previa');
+  const sinClave = r.preguntas.filter((p) => !p.clave).length;
+  const sinCriterio = r.preguntas.filter((p) => !p.eje).length;
+
+  const secciones = [];
+  const textos = [...r.textos].sort((a, b) => a.orden - b.orden || a.id - b.id);
+
+  for (const t of textos) {
+    const preguntas = r.preguntas.filter((p) => p.texto_id === t.id);
+    if (!preguntas.length) continue;
+    secciones.push(
+      '<section class="examen">' +
+        '<article class="lectura">' +
+          '<span class="etiqueta gris">' + esc(t.tipo_texto) + '</span>' +
+          '<h2 style="margin-top:.6rem">' + esc(t.titulo) + '</h2>' +
+          (t.autor ? '<p class="silencio">' + esc(t.autor) + '</p>' : '') +
+          '<div class="cuerpo">' + parrafos(t.contenido) + '</div>' +
+        '</article>' +
+        '<div>' + preguntas.map(dibujarPreguntaPrevia).join('') + '</div>' +
+      '</section>'
+    );
+  }
+
+  const sueltas = r.preguntas.filter((p) => !p.texto_id);
+  if (sueltas.length) secciones.push('<section>' + sueltas.map(dibujarPreguntaPrevia).join('') + '</section>');
+
+  nodo.innerHTML = cabecera(r.prueba, 'vista') +
+    '<div class="tarjeta no-imprimir"><div class="fila">' +
+      '<div class="crece"><strong>Así la verá el estudiante.</strong> ' +
+      '<span class="silencio">La alternativa correcta va destacada en verde; el estudiante no la ve.</span></div>' +
+      '<button onclick="window.print()">Imprimir</button>' +
+    '</div>' +
+    (sinClave || sinCriterio
+      ? '<div class="aviso info" style="margin:.8rem 0 0">' +
+          (sinClave ? '<strong>' + plural(sinClave, 'pregunta') + ' sin alternativa correcta marcada.</strong> ' +
+            'Esas se cuentan como incorrectas para todos. ' : '') +
+          (sinCriterio ? plural(sinCriterio, 'pregunta') + ' sin criterio: no aparecerán en el desglose del informe.' : '') +
+        '</div>'
+      : '<div class="aviso ok" style="margin:.8rem 0 0">Todas las preguntas tienen clave y criterio.</div>') +
+    '</div>' +
+    (r.prueba.instrucciones
+      ? '<div class="tarjeta"><h3>Instrucciones</h3>' + parrafos(r.prueba.instrucciones) + '</div>'
+      : '') +
+    secciones.join('');
+}
+
+function dibujarPreguntaPrevia(p) {
+  const alternativas = (p.opciones || []).map((o) => {
+    const correcta = o.letra === p.clave;
+    return '<div class="alternativa' + (correcta ? ' elegida' : '') + '" style="cursor:default">' +
+      '<span class="letra">' + o.letra + '.</span>' +
+      '<span>' + esc(o.contenido) + '</span>' +
+      (correcta ? '<span class="etiqueta verde" style="margin-left:auto">correcta</span>' : '') +
+    '</div>';
+  }).join('');
+
+  return '<div class="pregunta">' +
+    '<p><span class="numero">' + p.numero + '.</span> ' + esc(p.enunciado) + '</p>' +
+    (p.cita ? '<div class="cita">' + esc(p.cita) + '</div>' : '') +
+    alternativas +
+    '<p class="silencio" style="margin:.6rem 0 0">' +
+      (p.eje ? '<span class="etiqueta">' + esc(p.eje) + '</span>' : '<span class="etiqueta roja">sin criterio</span>') +
+      (p.clave ? '' : ' <span class="etiqueta roja">sin clave</span>') +
+    '</p>' +
+  '</div>';
 }

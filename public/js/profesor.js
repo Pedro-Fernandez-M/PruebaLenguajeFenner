@@ -1,5 +1,5 @@
 import { api, $, $$, esc, mostrarAviso, limpiarAviso, plural } from './comun.js';
-import { vistaEditor, vistaMonitor, vistaCorreccion, vistaInforme, vistaInformeAlumno } from './prueba.js';
+import { vistaEditor, vistaPrevia, vistaMonitor, vistaInforme, vistaInformeAlumno } from './prueba.js';
 
 const panel = $('#panel');
 let docente = null;
@@ -42,8 +42,8 @@ const rutas = [
   [/^#codigos(?:\/(.*))?$/, vistaCodigos],
   [/^#cuenta$/, vistaCuenta],
   [/^#prueba\/(\d+)\/editor$/, vistaEditor],
+  [/^#prueba\/(\d+)\/vista$/, vistaPrevia],
   [/^#prueba\/(\d+)\/monitor$/, vistaMonitor],
-  [/^#prueba\/(\d+)\/correccion$/, vistaCorreccion],
   [/^#prueba\/(\d+)\/informe$/, vistaInforme],
   [/^#intento\/(\d+)$/, vistaInformeAlumno],
 ];
@@ -104,8 +104,8 @@ async function vistaPruebas(nodo) {
               (p.total_en_curso ? '<br><span class="etiqueta ambar">' + p.total_en_curso + ' rindiendo</span>' : '') + '</td>' +
             '<td><div class="fila fin">' +
               '<a href="#prueba/' + p.id + '/editor"><button class="neutro chico">Editar</button></a>' +
+              '<a href="#prueba/' + p.id + '/vista"><button class="neutro chico">Ver</button></a>' +
               '<a href="#prueba/' + p.id + '/monitor"><button class="neutro chico">Monitor</button></a>' +
-              '<a href="#prueba/' + p.id + '/correccion"><button class="neutro chico">Corregir</button></a>' +
               '<a href="#prueba/' + p.id + '/informe"><button class="secundario chico">Informe</button></a>' +
               '<button class="neutro chico" data-duplicar="' + p.id + '">Duplicar</button>' +
               '<button class="peligro chico" data-borrar="' + p.id + '">Eliminar</button>' +
