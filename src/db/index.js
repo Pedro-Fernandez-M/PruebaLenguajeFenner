@@ -4,11 +4,7 @@
 //
 // Ambos drivers cumplen el mismo contrato (all/get/run/exec/tx/cerrar) y todas
 // las consultas se escriben con marcadores "?" y SQL portable a propósito.
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+import { SQLITE, POSTGRES } from './esquemas.js';
 
 const usarPostgres = !!process.env.DATABASE_URL;
 const motor = usarPostgres ? await import('./postgres.js') : await import('./sqlite.js');
@@ -46,8 +42,7 @@ async function migrar() {
 
 export async function inicializar() {
   if (inicializada) return;
-  const archivo = usarPostgres ? 'src/db/schema.postgres.sql' : 'src/db/schema.sql';
-  await exec(fs.readFileSync(path.join(raiz, archivo), 'utf8'));
+  await exec(usarPostgres ? POSTGRES : SQLITE);
   await migrar();
   inicializada = true;
 }
