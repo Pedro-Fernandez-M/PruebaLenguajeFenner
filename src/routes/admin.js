@@ -4,7 +4,6 @@ import { exigirProfesor } from '../lib/sesion.js';
 import { generarCodigo } from '../lib/seguridad.js';
 import { EJES, TIPOS_TEXTO, LETRAS } from '../lib/evaluacion.js';
 import { leerXlsx } from '../lib/xlsx.js';
-import { convertirEnsayo } from '../lib/ensayo.js';
 
 const router = express.Router();
 router.use(exigirProfesor);
@@ -153,79 +152,6 @@ router.post('/pruebas/:id/duplicar', async (req, res) => {
   });
 
   res.status(201).json({ id: nuevaId });
-});
-
-/**
- * Crea una prueba completa a partir de un ensayo en Word.
- * Queda siempre en borrador. Si el documento es la version del docente, con la
- * alternativa correcta pintada de otro color, esa clave se importa; si es la del
- * estudiante, las preguntas quedan sin clave para marcarlas en el editor.
- */
-router.post('/pruebas/importar-docx', async (req, res) => {
-  let convertido;
-  try {
-    convertido = convertirEnsayo(decodificarArchivo(req.body));
-  } catch (error) {
-    return res.status(400).json({ error: 'No se pudo leer el documento: ' + error.message });
-  }
-
-  const { textos, preguntas, incidencias } = convertido;
-  if (!preguntas.length) {
-    return res.status(400).json({
-      error: 'No se reconoció ninguna pregunta. El documento debe usar encabezados "TEXTO 1" y preguntas numeradas del tipo "1.- ¿…?".',
-    });
-  }
-
-  const pruebaId = await db.tx(async () => {
-    const { id } = await db.run(
-      'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, profesor_id) ' +
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [
-        texto(req.body?.titulo, 'Ensayo importado desde Word').trim(),
-        texto(req.body?.asignatura, 'Lectura'),
-        texto(req.body?.nivel, 'II medio'),
-        'Importada desde un documento Word. Falta marcar la clave de cada pregunta y clasificar los ejes de habilidad.',
-        texto(req.body?.instrucciones, 'Lee cada texto con atención y responde todas las preguntas.'),
-        entero(req.body?.duracion_min),
-        req.profesor.id,
-      ]
-    );
-
-    const idsTextos = [];
-    for (const t of textos) {
-      const creado = await db.run(
-        'INSERT INTO textos (prueba_id, orden, titulo, autor, tipo_texto, contenido) VALUES (?, ?, ?, ?, ?, ?)',
-        [id, t.orden, t.titulo, t.autor, t.tipo_texto, t.contenido]
-      );
-      idsTextos.push({ id: creado.id, tipo: t.tipo_texto });
-    }
-
-    for (const p of preguntas) {
-      const asociado = p.texto_indice !== null ? idsTextos[p.texto_indice] : null;
-      const creada = await db.run(
-        'INSERT INTO preguntas (prueba_id, texto_id, numero, tipo, enunciado, tipo_texto, clave, puntaje) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          id, asociado ? asociado.id : null, p.numero, p.tipo, p.enunciado,
-          asociado ? asociado.tipo : '',
-          // La pauta viene marcada con color en la version del docente; si el
-          // documento no la trae, queda en null para que la marque a mano.
-          p.tipo === 'alternativas' && LETRAS.includes(p.clave) ? p.clave : null,
-          p.tipo === 'desarrollo' ? 2 : 1,
-        ]
-      );
-      await guardarOpcionesYRubricas(creada.id, p, p.tipo);
-    }
-    return id;
-  });
-
-  res.status(201).json({
-    id: pruebaId,
-    textos: textos.length,
-    preguntas: preguntas.length,
-    con_clave: preguntas.filter((p) => p.clave).length,
-    incidencias,
-  });
 });
 
 /**
@@ -397,43 +323,6 @@ router.put('/preguntas/:id', async (req, res) => {
 router.delete('/preguntas/:id', async (req, res) => {
   await db.run('DELETE FROM preguntas WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
-});
-
-/** Carga varias preguntas de una vez (pegar desde una prueba ya escrita). */
-router.post('/pruebas/:id/preguntas/lote', async (req, res) => {
-  const prueba = await db.get('SELECT id FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
-  const lista = Array.isArray(req.body?.preguntas) ? req.body.preguntas : [];
-  if (!lista.length) return res.status(400).json({ error: 'No se recibió ninguna pregunta.' });
-
-  const creadas = await db.tx(async () => {
-    let n = (await db.get('SELECT COALESCE(MAX(numero), 0) AS n FROM preguntas WHERE prueba_id = ?', [prueba.id])).n;
-    const ids = [];
-    for (const item of lista) {
-      n += 1;
-      const tipo = item?.tipo === 'desarrollo' ? 'desarrollo' : 'alternativas';
-      const textoAsociado = entero(item?.texto_id);
-      const tipoTexto = textoAsociado
-        ? (await db.get('SELECT tipo_texto FROM textos WHERE id = ?', [textoAsociado]))?.tipo_texto || ''
-        : texto(item?.tipo_texto);
-      const { id } = await db.run(
-        'INSERT INTO preguntas (prueba_id, texto_id, numero, tipo, enunciado, cita, oa, eje, indicador, tipo_texto, clave, puntaje) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          prueba.id, textoAsociado, entero(item?.numero, n), tipo,
-          texto(item?.enunciado), texto(item?.cita), texto(item?.oa),
-          texto(item?.eje), texto(item?.indicador), tipoTexto,
-          tipo === 'alternativas' ? (LETRAS.includes(item?.clave) ? item.clave : null) : null,
-          entero(item?.puntaje, tipo === 'desarrollo' ? 2 : 1),
-        ]
-      );
-      await guardarOpcionesYRubricas(id, item, tipo);
-      ids.push(id);
-    }
-    return ids;
-  });
-
-  res.status(201).json({ creadas: creadas.length, ids: creadas });
 });
 
 /* ------------------------------------------------------------------ alumnos */

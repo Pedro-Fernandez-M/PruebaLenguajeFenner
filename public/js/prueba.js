@@ -258,7 +258,6 @@ function seccionPreguntas(preguntas, textos, prueba) {
       sugerencias.map((c) => '<option value="' + esc(c) + '">').join('') +
     '</datalist>' +
     '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
-      '<button class="secundario" id="q-pegar">Cargar varias</button>' +
       '<button id="q-nueva">Agregar pregunta</button></div>' +
     (sinClasificar || sinClave
       ? '<div class="aviso info">' +
@@ -266,7 +265,6 @@ function seccionPreguntas(preguntas, textos, prueba) {
           (sinClasificar ? sinClasificar + ' pregunta(s) sin criterio: no aparecerán en el desglose del informe.' : '') +
         '</div>'
       : '') +
-    '<div id="caja-pegar"></div>' +
     preguntas.map((p) => tarjetaPregunta(p, textos)).join('') +
     (preguntas.length ? '' : '<p class="silencio">Todavía no hay preguntas.</p>') +
     '</div>';
@@ -381,8 +379,6 @@ async function agregarPregunta(prueba, numero, anterior = null) {
 function conectarPreguntas(prueba, textos, preguntas) {
   $('#q-nueva').addEventListener('click', () => agregarPregunta(prueba, preguntas.length + 1));
 
-  $('#q-pegar').addEventListener('click', () => formularioLote($('#caja-pegar'), prueba, textos));
-
   document.querySelectorAll('[data-guardar-pregunta]').forEach((boton) => {
     boton.addEventListener('click', async () => {
       const caja = boton.closest('[data-pregunta]');
@@ -410,50 +406,6 @@ function conectarPreguntas(prueba, textos, preguntas) {
       await api('/api/admin/preguntas/' + boton.dataset.borrarPregunta, { metodo: 'DELETE' });
       recargar();
     });
-  });
-}
-
-const PLANTILLA_LOTE = `1|Localizar|3|Localizan información explícita relevante en un texto narrativo.|D|¿Quién es el dueño de la taberna?|Chispa.|Monda.|Pincha.|Ponce.
-2|Interpretar y relacionar|3|Infieren información relevante sobre personajes.|A|¿Qué le preocupa a Ponce?|Que el bebé sea varón.|Que esté sano.|Que sea hermoso.|Que nazca pronto.`;
-
-function formularioLote(caja, prueba, textos) {
-  caja.innerHTML =
-    '<div class="tarjeta"><h3>Cargar varias preguntas de una vez</h3>' +
-      '<p class="silencio">Una línea por pregunta, con los campos separados por barra vertical <code>|</code>:<br>' +
-      '<code>N°|eje|OA|indicador|clave|enunciado|A|B|C|D</code><br>' +
-      'La clave es la letra de la alternativa correcta.</p>' +
-      '<div class="campo"><label>Texto al que se asocian</label><select id="lote-texto">' +
-        '<option value="">— sin texto —</option>' +
-        textos.map((t) => '<option value="' + t.id + '">' + esc(t.titulo) + '</option>').join('') +
-      '</select></div>' +
-      '<div class="campo"><textarea id="lote-datos" rows="8" placeholder="' + esc(PLANTILLA_LOTE) + '"></textarea></div>' +
-      '<div class="fila fin"><button class="neutro" id="lote-cancelar">Cancelar</button>' +
-        '<button id="lote-cargar">Cargar preguntas</button></div>' +
-    '</div>';
-
-  $('#lote-cancelar').addEventListener('click', () => { caja.innerHTML = ''; });
-
-  $('#lote-cargar').addEventListener('click', async () => {
-    const textoId = $('#lote-texto').value ? Number($('#lote-texto').value) : null;
-    const lista = $('#lote-datos').value.split('\n').map((linea) => linea.trim()).filter(Boolean).map((linea) => {
-      const c = linea.split('|').map((x) => x.trim());
-      return {
-        numero: Number(c[0]) || undefined,
-        eje: c[1] || '',
-        oa: c[2] || '',
-        indicador: c[3] || '',
-        tipo: 'alternativas',
-        clave: (c[4] || '').toUpperCase(),
-        enunciado: c[5] || '',
-        texto_id: textoId,
-        opciones: LETRAS.map((letra, i) => ({ letra, contenido: c[6 + i] || '' })),
-      };
-    });
-
-    if (!lista.length) return mostrarAviso($('#aviso'), 'No se reconoció ninguna línea.');
-    const r = await api('/api/admin/pruebas/' + prueba.id + '/preguntas/lote', { cuerpo: { preguntas: lista } });
-    mostrarAviso($('#aviso'), r.creadas + ' preguntas cargadas.', 'ok');
-    recargar();
   });
 }
 

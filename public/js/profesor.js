@@ -85,7 +85,6 @@ async function vistaPruebas(nodo) {
   nodo.innerHTML =
     '<div class="fila"><h1 class="crece">Pruebas</h1>' +
       '<a href="#cuenta" class="silencio">Mi cuenta</a>' +
-      '<button class="secundario" id="btn-word">Importar desde Word</button>' +
       '<button id="btn-nueva">Nueva prueba</button></div>' +
     '<div id="aviso" class="aviso"></div>' +
     '<div id="caja-nueva"></div>' +
@@ -116,7 +115,6 @@ async function vistaPruebas(nodo) {
         '<p class="silencio">Crea una prueba, agrega los textos y luego las preguntas con su OA, eje de habilidad e indicador.</p></div>');
 
   $('#btn-nueva').addEventListener('click', () => formularioNuevaPrueba($('#caja-nueva')));
-  $('#btn-word').addEventListener('click', () => formularioImportarWord($('#caja-nueva')));
 
   nodo.querySelectorAll('[data-duplicar]').forEach((b) => b.addEventListener('click', async () => {
     await api('/api/admin/pruebas/' + b.dataset.duplicar + '/duplicar', { cuerpo: {} });
@@ -166,63 +164,6 @@ function aBase64(archivo) {
     const lector = new FileReader();
     lector.onload = () => resolver(String(lector.result).split(',')[1]);
     lector.readAsDataURL(archivo);
-  });
-}
-
-function formularioImportarWord(caja) {
-  caja.innerHTML =
-    '<div class="tarjeta"><h2>Importar un ensayo desde Word</h2>' +
-      '<p class="silencio">Toma un .docx con el formato habitual de las pruebas de comprensión lectora: ' +
-      'encabezados <code>TEXTO 1</code>, <code>TEXTO 2</code>… y preguntas numeradas <code>1.- ¿…?</code> ' +
-      'seguidas de sus alternativas <code>A.</code> a <code>D.</code><br>' +
-      'Se cargan los textos y las preguntas, pero <strong>no la clave</strong>: el documento del estudiante no la trae. ' +
-      'La prueba queda en borrador para que marques la alternativa correcta y clasifiques los ejes de habilidad.</p>' +
-      '<div class="rejilla dos">' +
-        '<div class="campo"><label>Título de la prueba</label><input id="w-titulo" placeholder="Ensayo SIMCE 2° medio"></div>' +
-        '<div class="campo"><label>Nivel</label><input id="w-nivel" value="II medio"></div>' +
-        '<div class="campo"><label>Duración en minutos</label><input id="w-duracion" type="number" min="1" placeholder="80"></div>' +
-        '<div class="campo"><label>Documento</label><input type="file" id="w-archivo" accept=".docx"></div>' +
-      '</div>' +
-      '<div class="fila fin"><button class="neutro" id="w-cancelar">Cancelar</button>' +
-        '<button id="w-cargar" disabled>Importar</button></div>' +
-      '<div id="w-resultado"></div>' +
-    '</div>';
-
-  $('#w-cancelar').addEventListener('click', () => { caja.innerHTML = ''; });
-
-  $('#w-archivo').addEventListener('change', (e) => {
-    $('#w-cargar').disabled = !e.target.files.length;
-    if (e.target.files.length && !$('#w-titulo').value.trim()) {
-      $('#w-titulo').value = e.target.files[0].name.replace(/\.docx$/i, '');
-    }
-  });
-
-  $('#w-cargar').addEventListener('click', async () => {
-    const archivo = $('#w-archivo').files[0];
-    if (!archivo) return;
-    $('#w-cargar').disabled = true;
-    $('#w-resultado').innerHTML = '<p class="silencio">Leyendo el documento…</p>';
-
-    try {
-      const r = await api('/api/admin/pruebas/importar-docx', {
-        cuerpo: {
-          archivo: await aBase64(archivo),
-          titulo: $('#w-titulo').value.trim() || archivo.name.replace(/\.docx$/i, ''),
-          nivel: $('#w-nivel').value,
-          duracion_min: $('#w-duracion').value || null,
-        },
-      });
-
-      $('#w-resultado').innerHTML =
-        '<div class="aviso ok">Se importaron ' + plural(r.textos, 'texto') + ' y ' + plural(r.preguntas, 'pregunta') + '.</div>' +
-        '<h3>Revisa antes de publicar</h3><ul class="silencio">' +
-          r.incidencias.map((i) => '<li>' + esc(i) + '</li>').join('') +
-        '</ul>' +
-        '<div class="fila fin"><a href="#prueba/' + r.id + '/editor"><button>Abrir en el editor</button></a></div>';
-    } catch (error) {
-      $('#w-resultado').innerHTML = '<div class="aviso error">' + esc(error.message) + '</div>';
-      $('#w-cargar').disabled = false;
-    }
   });
 }
 
