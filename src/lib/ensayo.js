@@ -14,7 +14,7 @@ import { parrafosDeDocx } from './docx.js';
 
 const RE_ENCABEZADO_TEXTO = /^\s*TEXTO\s*(?:N[°º]?\s*)?(\d+)\s*$/i;
 const RE_PREGUNTA = /^\s*(\d{1,2})\s*[.\-—)]+\s*(.*)$/;
-const RE_ALTERNATIVA = /(?:^|[\t\s])([A-D])\s*[.)-]\s+/g;
+const RE_ALTERNATIVA = /(?:^|[\t\s])([A-E])\s*[.)-]\s+/g;
 
 const TIPOS = {
   dramatico: 'Texto dramático',
@@ -112,7 +112,7 @@ export function convertirEnsayo(buffer) {
       if (faltantes.length) {
         incidencias.push('Pregunta ' + preguntaActual.numero + ': faltan las alternativas ' + faltantes.join(', ') + '.');
       }
-      preguntaActual.opciones = ['A', 'B', 'C', 'D'].map((letra) => ({ letra, contenido: opciones[letra] || '' }));
+      preguntaActual.opciones = ['A', 'B', 'C', 'D', 'E'].map((letra) => ({ letra, contenido: opciones[letra] || '' }));
     }
 
     preguntas.push(preguntaActual);

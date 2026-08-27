@@ -30,7 +30,7 @@ function restaurarFoco() {
   }
 }
 
-const LETRAS = ['A', 'B', 'C', 'D'];
+const LETRAS = ['A', 'B', 'C', 'D', 'E'];
 const EJES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
 const TIPOS_TEXTO = [
   'Narración',

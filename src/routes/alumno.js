@@ -2,7 +2,7 @@ import express from 'express';
 import * as db from '../db/index.js';
 import { normalizarCodigo } from '../lib/seguridad.js';
 import { iniciarSesionAlumno, cerrarSesion, exigirAlumno, COOKIE_ALUMNO } from '../lib/sesion.js';
-import { recalcularIntento, informeDeAlumno } from '../lib/evaluacion.js';
+import { recalcularIntento, informeDeAlumno, LETRAS } from '../lib/evaluacion.js';
 
 const { AHORA } = db;
 
@@ -126,7 +126,12 @@ router.get('/intentos/:id', exigirAlumno, async (req, res) => {
       nivel: prueba.nivel, instrucciones: prueba.instrucciones, duracion_min: prueba.duracion_min,
     },
     textos,
-    preguntas: preguntas.map((p) => ({ ...p, opciones: opciones.filter((o) => o.pregunta_id === p.id) })),
+    // Solo viajan las alternativas con contenido: asi una prueba de cuatro
+    // opciones no muestra una E vacia.
+    preguntas: preguntas.map((p) => ({
+      ...p,
+      opciones: opciones.filter((o) => o.pregunta_id === p.id && String(o.contenido || '').trim()),
+    })),
     respuestas,
   });
 });
@@ -141,7 +146,7 @@ router.post('/intentos/:id/respuesta', exigirAlumno, async (req, res) => {
   const pregunta = await db.get('SELECT * FROM preguntas WHERE id = ? AND prueba_id = ?', [preguntaId, intento.prueba_id]);
   if (!pregunta) return res.status(400).json({ error: 'Pregunta inválida.' });
 
-  const alternativa = ['A', 'B', 'C', 'D'].includes(req.body?.alternativa) ? req.body.alternativa : null;
+  const alternativa = LETRAS.includes(req.body?.alternativa) ? req.body.alternativa : null;
   const texto = String(req.body?.respuesta_texto ?? '').slice(0, 8000);
 
   const existente = await db.get('SELECT id FROM respuestas WHERE intento_id = ? AND pregunta_id = ?', [intento.id, preguntaId]);

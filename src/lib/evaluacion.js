@@ -16,7 +16,10 @@ export const TIPOS_TEXTO = [
   'Otro',
 ];
 
-export const LETRAS = ['A', 'B', 'C', 'D'];
+// Las pruebas de comprension lectora usan 4 o 5 alternativas segun el caso.
+// Se admiten hasta cinco: las que queden vacias no se muestran al estudiante
+// ni aparecen en el informe, asi que ambos formatos conviven sin configurar nada.
+export const LETRAS = ['A', 'B', 'C', 'D', 'E'];
 
 // La ficha tecnica fija el codigo 2 como respuesta correcta, 1 como parcial y 0
 // como incorrecta (incluida la respuesta en blanco).
@@ -199,7 +202,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     };
 
     if (pregunta.tipo === 'alternativas') {
-      const conteo = { A: 0, B: 0, C: 0, D: 0, N: 0 };
+      const conteo = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
       for (const r of lista) {
         if (r.alternativa && conteo[r.alternativa] !== undefined) conteo[r.alternativa] += 1;
         else conteo.N += 1;
@@ -207,7 +210,14 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       conteo.N += totalAlumnos - lista.length;
       obtenidoPregunta = (conteo[pregunta.clave] || 0) * pregunta.puntaje;
 
-      fila.distribucion = LETRAS.map((letra) => ({
+      // Solo se listan las alternativas que la pregunta realmente usa; incluir
+      // una E vacia con 0% seria ruido en el informe.
+      const letrasEnUso = LETRAS.filter((letra) => {
+        const o = opcionesPregunta.find((x) => x.letra === letra);
+        return (o && String(o.contenido || '').trim()) || letra === pregunta.clave || conteo[letra] > 0;
+      });
+
+      fila.distribucion = letrasEnUso.map((letra) => ({
         letra,
         contenido: (opcionesPregunta.find((o) => o.letra === letra) || {}).contenido || '',
         cantidad: conteo[letra],
