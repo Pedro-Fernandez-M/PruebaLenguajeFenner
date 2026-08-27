@@ -197,10 +197,16 @@ tbody tr:hover { background: #fafbfd; }
 
 .imprimible { display: none; }
 
+/* Hoja de codigos: cada curso en su propia pagina y talones que no se parten. */
+.hoja-curso { break-inside: auto; }
+.hoja-curso .tarjeta { break-inside: avoid; }
+
 @media print {
   .barra, .pestanas, button, .no-imprimir { display: none !important; }
   body { background: #fff; }
-  .tarjeta { box-shadow: none; break-inside: avoid; }
+  .tarjeta { box-shadow: none; break-inside: avoid; border-style: dashed; }
+  .hoja-curso + .hoja-curso { break-before: page; }
+  .hoja-curso h2 { font-size: 1.1rem; }
   .contenido { max-width: none; padding: 0; }
   .imprimible { display: block; }
 }

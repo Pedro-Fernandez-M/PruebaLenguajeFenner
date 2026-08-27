@@ -3,7 +3,6 @@ import * as db from '../db/index.js';
 import { exigirProfesor } from '../lib/sesion.js';
 import { generarCodigo } from '../lib/seguridad.js';
 import { EJES, TIPOS_TEXTO, LETRAS } from '../lib/evaluacion.js';
-import { leerXlsx } from '../lib/xlsx.js';
 
 const router = express.Router();
 router.use(exigirProfesor);
@@ -345,19 +344,6 @@ async function codigoUnico() {
   throw new Error('No fue posible generar un código único.');
 }
 
-router.post('/alumnos', async (req, res) => {
-  const nombre = texto(req.body?.nombre).trim();
-  if (!nombre) return res.status(400).json({ error: 'El alumno necesita un nombre.' });
-
-  const codigo = await codigoUnico();
-  const { id } = await db.run(
-    'INSERT INTO alumnos (matricula, rut, dv, nombre, curso, regimen, codigo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [texto(req.body?.matricula), texto(req.body?.rut), texto(req.body?.dv), nombre,
-      texto(req.body?.curso).trim(), texto(req.body?.regimen), codigo]
-  );
-  res.status(201).json({ id, codigo });
-});
-
 router.put('/alumnos/:id', async (req, res) => {
   const a = await db.get('SELECT * FROM alumnos WHERE id = ?', [req.params.id]);
   if (!a) return res.status(404).json({ error: 'Alumno no encontrado.' });
@@ -385,123 +371,6 @@ router.post('/alumnos/:id/regenerar-codigo', async (req, res) => {
   const r = await db.run('UPDATE alumnos SET codigo = ? WHERE id = ?', [codigo, req.params.id]);
   if (!r.cambios) return res.status(404).json({ error: 'Alumno no encontrado.' });
   res.json({ codigo });
-});
-
-/* ----------------------------------------------- importacion de nomina xlsx */
-
-// Encabezados esperados en la planilla de matricula del liceo.
-const ALIAS_COLUMNAS = {
-  matricula: ['n° mat.', 'n mat', 'matricula', 'matrícula', 'nº mat.', 'n° matricula'],
-  nombre: ['nómina de alumnos', 'nomina de alumnos', 'nombre', 'nombre completo', 'apellidos y nombres'],
-  curso: ['curso', 'nivel'],
-  rut: ['cédula identidad', 'cedula identidad', 'rut', 'run'],
-  dv: ['dv', 'dígito', 'digito'],
-  regimen: ['regimen', 'régimen'],
-};
-
-const limpiar = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-
-function detectarColumnas(filas) {
-  for (let i = 0; i < Math.min(filas.length, 15); i++) {
-    const fila = filas[i].map(limpiar);
-    const mapa = {};
-    for (const [campo, alias] of Object.entries(ALIAS_COLUMNAS)) {
-      const idx = fila.findIndex((c) => alias.includes(c));
-      if (idx >= 0) mapa[campo] = idx;
-    }
-    if (mapa.nombre !== undefined) return { filaEncabezado: i, columnas: mapa };
-  }
-  return null;
-}
-
-// El libro de matrícula usa I (interno) y E (externo), a veces en minúscula.
-function normalizarRegimen(valor) {
-  const v = String(valor || '').trim().toUpperCase();
-  if (v.startsWith('I')) return 'Interno';
-  if (v.startsWith('E')) return 'Externo';
-  return '';
-}
-
-function extraerFilas(hoja) {
-  const deteccion = detectarColumnas(hoja.filas);
-  if (!deteccion) return { nombre: hoja.nombre, error: 'No se encontró la columna con los nombres.', alumnos: [] };
-
-  const { filaEncabezado, columnas } = deteccion;
-  const alumnos = [];
-  for (let i = filaEncabezado + 1; i < hoja.filas.length; i++) {
-    const fila = hoja.filas[i];
-    const nombre = String(fila[columnas.nombre] || '').trim();
-    if (!nombre || limpiar(nombre) === 'nómina de alumnos') continue;
-    alumnos.push({
-      matricula: columnas.matricula !== undefined ? String(fila[columnas.matricula] || '').trim() : '',
-      nombre,
-      curso: columnas.curso !== undefined ? String(fila[columnas.curso] || '').trim() : '',
-      rut: columnas.rut !== undefined ? String(fila[columnas.rut] || '').trim() : '',
-      dv: columnas.dv !== undefined ? String(fila[columnas.dv] || '').trim().toUpperCase() : '',
-      regimen: columnas.regimen !== undefined ? normalizarRegimen(fila[columnas.regimen]) : '',
-    });
-  }
-  return { nombre: hoja.nombre, alumnos };
-}
-
-function decodificarArchivo(cuerpo) {
-  const base64 = String(cuerpo?.archivo || '').replace(/^data:[^,]*,/, '');
-  if (!base64) throw new Error('No se recibió el archivo.');
-  return Buffer.from(base64, 'base64');
-}
-
-router.post('/alumnos/analizar', async (req, res) => {
-  try {
-    const hojas = leerXlsx(decodificarArchivo(req.body));
-    res.json({ hojas: hojas.map(extraerFilas) });
-  } catch (error) {
-    res.status(400).json({ error: 'No se pudo leer la planilla: ' + error.message });
-  }
-});
-
-router.post('/alumnos/importar', async (req, res) => {
-  const lista = Array.isArray(req.body?.alumnos) ? req.body.alumnos : [];
-  if (!lista.length) return res.status(400).json({ error: 'No se recibió ningún alumno.' });
-
-  const resultado = await db.tx(async () => {
-    let creados = 0;
-    let actualizados = 0;
-    const nuevos = [];
-
-    for (const item of lista) {
-      const nombre = String(item?.nombre || '').trim();
-      if (!nombre) continue;
-      const rut = String(item?.rut || '').trim();
-      const matricula = String(item?.matricula || '').trim();
-      const curso = String(item?.curso || '').trim();
-
-      // Se reconoce al alumno por RUT y, si no hay, por matricula; asi una
-      // reimportacion actualiza en vez de duplicar y conserva el codigo.
-      let existente = null;
-      if (rut) existente = await db.get('SELECT * FROM alumnos WHERE rut = ? AND rut <> ?', [rut, '']);
-      if (!existente && matricula) existente = await db.get('SELECT * FROM alumnos WHERE matricula = ? AND matricula <> ?', [matricula, '']);
-
-      if (existente) {
-        await db.run('UPDATE alumnos SET nombre = ?, curso = ?, matricula = ?, rut = ?, dv = ?, regimen = ? WHERE id = ?', [
-          nombre, curso || existente.curso, matricula || existente.matricula, rut || existente.rut,
-          String(item?.dv || existente.dv || '').toUpperCase(),
-          String(item?.regimen || existente.regimen || ''), existente.id,
-        ]);
-        actualizados += 1;
-      } else {
-        const codigo = await codigoUnico();
-        const { id } = await db.run(
-          'INSERT INTO alumnos (matricula, rut, dv, nombre, curso, regimen, codigo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [matricula, rut, String(item?.dv || '').toUpperCase(), nombre, curso, String(item?.regimen || ''), codigo]
-        );
-        nuevos.push({ id, nombre, curso, codigo });
-        creados += 1;
-      }
-    }
-    return { creados, actualizados, nuevos };
-  });
-
-  res.json(resultado);
 });
 
 export default router;

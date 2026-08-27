@@ -76,11 +76,12 @@ Nivel II desde 40 %, Nivel III desde 70 %).
 
 ## Flujo de trabajo del docente
 
-1. **Alumnos y códigos → Importar planilla.** Sube la planilla de matrícula `.xlsx`
-   tal como viene: se detectan solas las columnas *N° MAT.*, *NÓMINA DE ALUMNOS*,
-   *CURSO* y *CÉDULA IDENTIDAD*. Cada alumno recibe un código único tipo `K7M2-4X9P`.
-   Si vuelves a importar, los alumnos existentes se actualizan y **conservan su código**.
-2. **Imprimir códigos.** Genera una hoja de talones recortables, uno por estudiante.
+1. **Alumnos y códigos.** La nómina ya está cargada, con un código único por
+   estudiante tipo `K7M2-4X9P`. Desde ahí se puede regenerar el código de alguien
+   o dar de baja a quien se retiró.
+2. **Imprimir códigos.** Talones recortables agrupados por curso, uno por
+   estudiante. Se puede imprimir un curso o todos; al imprimir todos, cada curso
+   empieza en una hoja nueva. Solo salen los estudiantes vigentes.
 3. **Crear la prueba.** *Nueva prueba*, y luego cargar los textos y las preguntas
    en el editor. También se puede *Duplicar* una prueba anterior para partir de ella.
 4. **Escribir cada pregunta** con sus alternativas, marcar la correcta y elegir el
@@ -144,7 +145,6 @@ src/
     seguridad.js         hash de contraseñas, sesiones firmadas, códigos de alumno
     sesion.js            middlewares de profesor y alumno
     evaluacion.js        corrección y cálculo de los informes
-    xlsx.js              lector de planillas sin dependencias
   routes/
     auth.js  alumno.js  admin.js  informes.js
 public/                  interfaz (HTML, CSS y JS sin compilación)

@@ -158,15 +158,6 @@ function formularioNuevaPrueba(caja) {
   });
 }
 
-/** Lee un archivo local y devuelve su contenido en base64. */
-function aBase64(archivo) {
-  return new Promise((resolver) => {
-    const lector = new FileReader();
-    lector.onload = () => resolver(String(lector.result).split(',')[1]);
-    lector.readAsDataURL(archivo);
-  });
-}
-
 /* ---------------------------------------------------------- vista: alumnos */
 
 async function vistaAlumnos(nodo) {
@@ -176,9 +167,8 @@ async function vistaAlumnos(nodo) {
   nodo.innerHTML =
     '<div class="fila"><h1 class="crece">Alumnos y códigos</h1>' +
       '<a href="#codigos/' + encodeURIComponent(cursoFiltro) + '"><button class="secundario">Imprimir códigos</button></a>' +
-      '<button id="btn-importar">Importar planilla</button></div>' +
+      '</div>' +
     '<div id="aviso" class="aviso"></div>' +
-    '<div id="caja-importar"></div>' +
 
     '<div class="tarjeta"><div class="fila">' +
       '<div style="min-width:190px"><label>Filtrar por curso</label>' +
@@ -187,10 +177,7 @@ async function vistaAlumnos(nodo) {
           datos.cursos.map((c) => '<option value="' + esc(c.curso) + '"' +
             (c.curso === cursoFiltro ? ' selected' : '') + '>' + esc(c.curso) + ' (' + c.n + ')</option>').join('') +
         '</select></div>' +
-      '<div class="crece"></div>' +
-      '<button class="neutro" id="btn-agregar">Agregar alumno</button>' +
     '</div></div>' +
-    '<div id="caja-agregar"></div>' +
 
     '<div class="tarjeta tabla-scroll"><table><thead><tr>' +
       '<th>N° mat.</th><th>Nombre</th><th>Curso</th><th>RUT</th><th>Código</th><th></th>' +
@@ -216,28 +203,6 @@ async function vistaAlumnos(nodo) {
     enrutar();
   });
 
-  $('#btn-agregar').addEventListener('click', () => {
-    $('#caja-agregar').innerHTML =
-      '<div class="tarjeta"><h2>Agregar alumno</h2><div class="rejilla dos">' +
-        '<div class="campo"><label>Nombre completo</label><input id="a-nombre"></div>' +
-        '<div class="campo"><label>Curso</label><input id="a-curso" value="' + esc(cursoFiltro) + '" placeholder="2° A"></div>' +
-        '<div class="campo"><label>N° matrícula</label><input id="a-matricula"></div>' +
-        '<div class="campo"><label>RUT (sin dígito verificador)</label><input id="a-rut"></div>' +
-      '</div><div class="fila fin"><button id="a-guardar">Guardar y generar código</button></div></div>';
-
-    $('#a-guardar').addEventListener('click', async () => {
-      const nombre = $('#a-nombre').value.trim();
-      if (!nombre) return mostrarAviso($('#aviso'), 'El alumno necesita un nombre.');
-      await api('/api/admin/alumnos', {
-        cuerpo: {
-          nombre, curso: $('#a-curso').value.trim(),
-          matricula: $('#a-matricula').value.trim(), rut: $('#a-rut').value.trim(),
-        },
-      });
-      enrutar();
-    });
-  });
-
   nodo.querySelectorAll('[data-regenerar]').forEach((b) => b.addEventListener('click', async () => {
     if (!confirm('El código antiguo dejará de servir. ¿Generar uno nuevo?')) return;
     await api('/api/admin/alumnos/' + b.dataset.regenerar + '/regenerar-codigo', { cuerpo: {} });
@@ -250,124 +215,73 @@ async function vistaAlumnos(nodo) {
     enrutar();
   }));
 
-  $('#btn-importar').addEventListener('click', () => formularioImportar($('#caja-importar')));
-}
-
-function formularioImportar(caja) {
-  caja.innerHTML =
-    '<div class="tarjeta"><h2>Importar nómina desde Excel</h2>' +
-      '<p class="silencio">Sirve la planilla de matrícula tal como viene: se detectan solas las columnas ' +
-      '<em>N° MAT.</em>, <em>NÓMINA DE ALUMNOS</em>, <em>CURSO</em> y <em>CÉDULA IDENTIDAD</em>. ' +
-      'Si un alumno ya existe (mismo RUT o matrícula) se actualizan sus datos y conserva su código.</p>' +
-      '<div class="campo"><input type="file" id="archivo" accept=".xlsx"></div>' +
-      '<div id="previsualizacion"></div>' +
-    '</div>';
-
-  $('#archivo').addEventListener('change', async (evento) => {
-    const archivo = evento.target.files[0];
-    if (!archivo) return;
-    const base64 = await aBase64(archivo);
-
-    const previa = $('#previsualizacion');
-    previa.innerHTML = '<p class="silencio">Leyendo planilla…</p>';
-    try {
-      const { hojas } = await api('/api/admin/alumnos/analizar', { cuerpo: { archivo: base64 } });
-      const todos = hojas.flatMap((h) => h.alumnos);
-      if (!todos.length) {
-        previa.innerHTML = '<div class="aviso error">No se reconocio ningun alumno en la planilla.</div>';
-        return;
-      }
-
-      // Se agrupa por curso para poder cargar solo los niveles que interesan.
-      const cursos = [...new Set(todos.map((a) => a.curso).filter(Boolean))].sort();
-      const conteo = (c) => todos.filter((a) => a.curso === c).length;
-      const regimenes = (c) => {
-        const lista = todos.filter((a) => a.curso === c);
-        const i = lista.filter((a) => a.regimen === 'Interno').length;
-        const e = lista.filter((a) => a.regimen === 'Externo').length;
-        return i || e ? ' (' + i + ' internos, ' + e + ' externos)' : '';
-      };
-
-      previa.innerHTML =
-        '<h3>Se encontraron ' + plural(todos.length, 'alumno') + ' en ' + plural(cursos.length, 'curso') + '</h3>' +
-        '<p class="silencio">Marca los cursos que quieres cargar.</p>' +
-        '<div class="fila" style="margin-bottom:.6rem">' +
-          '<button class="neutro chico" id="marcar-todos">Marcar todos</button>' +
-          '<button class="neutro chico" id="marcar-ninguno">Desmarcar todos</button>' +
-          cursos.map((c) => c.replace(/[^0-9]/g, '')).filter((n, i, a) => n && a.indexOf(n) === i).sort()
-            .map((n) => '<button class="neutro chico" data-nivel="' + n + '">Solo ' + n + '° medio</button>').join('') +
-        '</div>' +
-        '<div class="rejilla tres">' +
-        cursos.map((c) =>
-          '<label class="alternativa" style="margin:0">' +
-            '<input type="checkbox" data-curso="' + esc(c) + '" checked>' +
-            '<span><strong>' + esc(c) + '</strong><br><span class="silencio">' +
-              plural(conteo(c), 'alumno') + esc(regimenes(c)) + '</span></span>' +
-          '</label>').join('') +
-        '</div>' +
-        '<div class="fila fin" style="margin-top:.9rem">' +
-          '<span class="silencio crece" id="resumen-seleccion"></span>' +
-          '<button id="confirmar-importar">Importar seleccionados</button></div>';
-
-      const marcadas = () => $$('[data-curso]', previa).filter((c) => c.checked).map((c) => c.dataset.curso);
-      const refrescar = () => {
-        const n = todos.filter((a) => marcadas().includes(a.curso)).length;
-        $('#resumen-seleccion').textContent = 'Se cargaran ' + plural(n, 'alumno') + '.';
-        $('#confirmar-importar').disabled = n === 0;
-      };
-
-      $$('[data-curso]', previa).forEach((c) => c.addEventListener('change', refrescar));
-      $('#marcar-todos').addEventListener('click', () => {
-        $$('[data-curso]', previa).forEach((c) => { c.checked = true; });
-        refrescar();
-      });
-      $('#marcar-ninguno').addEventListener('click', () => {
-        $$('[data-curso]', previa).forEach((c) => { c.checked = false; });
-        refrescar();
-      });
-      $$('[data-nivel]', previa).forEach((boton) => boton.addEventListener('click', () => {
-        $$('[data-curso]', previa).forEach((c) => {
-          c.checked = c.dataset.curso.replace(/[^0-9]/g, '') === boton.dataset.nivel;
-        });
-        refrescar();
-      }));
-      refrescar();
-
-      $('#confirmar-importar').addEventListener('click', async () => {
-        const elegidos = marcadas();
-        const alumnos = todos.filter((a) => elegidos.includes(a.curso));
-        const r = await api('/api/admin/alumnos/importar', { cuerpo: { alumnos } });
-        mostrarAviso($('#aviso'),
-          plural(r.creados, 'alumno nuevo', 'alumnos nuevos') + ' con codigo y ' + r.actualizados + ' actualizados.', 'ok');
-        caja.innerHTML = '';
-        enrutar();
-      });
-    } catch (error) {
-      previa.innerHTML = '<div class="aviso error">' + esc(error.message) + '</div>';
-    }
-  });
 }
 
 /* ------------------------------------------------- vista: hoja de códigos */
 
 async function vistaCodigos(nodo, curso) {
   const filtro = decodeURIComponent(curso || '');
+  // El selector lista siempre todos los cursos, aunque se este viendo uno solo.
+  const completo = await api('/api/admin/alumnos');
+  const porCursoTodos = new Map();
+  for (const a of completo.alumnos.filter((x) => x.activo)) {
+    porCursoTodos.set(a.curso, (porCursoTodos.get(a.curso) || 0) + 1);
+  }
   const datos = await api('/api/admin/alumnos' + (filtro ? '?curso=' + encodeURIComponent(filtro) : ''));
 
+  // Solo los vigentes: imprimir el talon de un estudiante retirado seria repartir
+  // un codigo que ya no sirve.
+  const vigentes = datos.alumnos.filter((a) => a.activo);
+
+  // Agrupados por curso: se imprimen todos de una vez, pero cada curso empieza
+  // en su propia hoja, que es como se reparten despues en la sala.
+  const porCurso = new Map();
+  for (const a of vigentes) {
+    const c = a.curso || 'Sin curso';
+    if (!porCurso.has(c)) porCurso.set(c, []);
+    porCurso.get(c).push(a);
+  }
+
+  const talon = (a) =>
+    '<div class="tarjeta" style="margin:0">' +
+      '<div class="silencio" style="font-size:.78rem">' + esc(a.curso) +
+        (a.matricula ? ' · N° ' + esc(a.matricula) : '') + '</div>' +
+      '<div style="font-weight:600;margin:.2rem 0 .5rem">' + esc(a.nombre) + '</div>' +
+      '<div class="codigo-alumno">' + esc(a.codigo) + '</div>' +
+      '<div class="silencio" style="font-size:.75rem;margin-top:.4rem">' +
+        'Ingresa en la dirección que indique tu profesor</div>' +
+    '</div>';
+
+  const hojas = [...porCurso.entries()].map(([c, lista], i) =>
+    '<section class="hoja-curso"' + (i ? ' style="break-before:page"' : '') + '>' +
+      '<div class="fila" style="margin:1.2rem 0 .6rem">' +
+        '<h2 class="crece">' + esc(c) + '</h2>' +
+        '<span class="silencio">' + plural(lista.length, 'estudiante') + '</span>' +
+      '</div>' +
+      '<div class="rejilla tres">' + lista.map(talon).join('') + '</div>' +
+    '</section>').join('');
+
   nodo.innerHTML =
-    '<div class="fila no-imprimir"><h1 class="crece">Códigos de acceso' + (filtro ? ' — ' + esc(filtro) : '') + '</h1>' +
+    '<div class="fila no-imprimir"><h1 class="crece">Códigos de acceso</h1>' +
       '<a href="#alumnos"><button class="neutro">Volver</button></a>' +
       '<button onclick="window.print()">Imprimir</button></div>' +
-    '<p class="silencio no-imprimir">Recorta y entrega un talón a cada estudiante. El código sirve para todas las pruebas que le asignes.</p>' +
-    '<div class="rejilla tres">' +
-    datos.alumnos.map((a) =>
-      '<div class="tarjeta" style="margin:0">' +
-        '<div class="silencio" style="font-size:.78rem">' + esc(a.curso) + (a.matricula ? ' · N° ' + esc(a.matricula) : '') + '</div>' +
-        '<div style="font-weight:600;margin:.2rem 0 .5rem">' + esc(a.nombre) + '</div>' +
-        '<div class="codigo-alumno">' + esc(a.codigo) + '</div>' +
-        '<div class="silencio" style="font-size:.75rem;margin-top:.4rem">Ingresa en la dirección que indique tu profesor</div>' +
-      '</div>').join('') +
-    '</div>';
+
+    '<div class="tarjeta no-imprimir"><div class="fila">' +
+      '<div style="min-width:210px"><label>Curso a imprimir</label>' +
+        '<select id="filtro-codigos">' +
+          '<option value="">Todos (' + plural(vigentes.length, 'estudiante') + ')</option>' +
+          [...porCursoTodos.entries()].map(([c, n]) => '<option value="' + esc(c) + '"' +
+            (c === filtro ? ' selected' : '') + '>' + esc(c) + ' (' + n + ')</option>').join('') +
+        '</select></div>' +
+      '<p class="silencio crece" style="margin:0">Recorta y entrega un talón a cada estudiante. ' +
+        'Al imprimir todos, cada curso empieza en una hoja nueva.</p>' +
+    '</div></div>' +
+
+    (vigentes.length ? hojas : '<div class="tarjeta"><p>No hay estudiantes vigentes en ese curso.</p></div>');
+
+  $('#filtro-codigos').addEventListener('change', (e) => {
+    location.hash = '#codigos/' + encodeURIComponent(e.target.value);
+  });
 }
 
 /* ----------------------------------------------------------- vista: cuenta */
