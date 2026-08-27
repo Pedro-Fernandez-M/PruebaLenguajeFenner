@@ -1,4 +1,4 @@
-import { api, $, esc, mostrarAviso, limpiarAviso, plural } from './comun.js';
+import { api, $, $$, esc, mostrarAviso, limpiarAviso, plural } from './comun.js';
 import { vistaEditor, vistaMonitor, vistaCorreccion, vistaInforme, vistaInformeAlumno } from './prueba.js';
 
 const panel = $('#panel');
@@ -60,7 +60,9 @@ async function enrutar() {
       } catch (error) {
         panel.innerHTML = '<div class="aviso error">' + esc(error.message) + '</div>';
       }
-      window.scrollTo(0, 0);
+      // Un repintado en el mismo lugar (guardar una pregunta) no debe saltar arriba.
+      if (window.mantenerScroll) window.mantenerScroll = false;
+      else window.scrollTo(0, 0);
       return;
     }
   }
@@ -329,28 +331,73 @@ function formularioImportar(caja) {
     previa.innerHTML = '<p class="silencio">Leyendo planilla…</p>';
     try {
       const { hojas } = await api('/api/admin/alumnos/analizar', { cuerpo: { archivo: base64 } });
-      const total = hojas.reduce((s, h) => s + h.alumnos.length, 0);
+      const todos = hojas.flatMap((h) => h.alumnos);
+      if (!todos.length) {
+        previa.innerHTML = '<div class="aviso error">No se reconocio ningun alumno en la planilla.</div>';
+        return;
+      }
+
+      // Se agrupa por curso para poder cargar solo los niveles que interesan.
+      const cursos = [...new Set(todos.map((a) => a.curso).filter(Boolean))].sort();
+      const conteo = (c) => todos.filter((a) => a.curso === c).length;
+      const regimenes = (c) => {
+        const lista = todos.filter((a) => a.curso === c);
+        const i = lista.filter((a) => a.regimen === 'Interno').length;
+        const e = lista.filter((a) => a.regimen === 'Externo').length;
+        return i || e ? ' (' + i + ' internos, ' + e + ' externos)' : '';
+      };
 
       previa.innerHTML =
-        '<h3>Se encontraron ' + total + ' alumnos</h3>' +
-        hojas.map((h, i) =>
-          '<label class="alternativa">' +
-            '<input type="checkbox" data-hoja="' + i + '" checked>' +
-            '<span><strong>' + esc(h.nombre) + '</strong> — ' +
-              (h.error ? '<span class="etiqueta roja">' + esc(h.error) + '</span>'
-                       : h.alumnos.length + ' alumnos · cursos: ' +
-                         esc([...new Set(h.alumnos.map((a) => a.curso).filter(Boolean))].join(', ') || 'sin curso')) +
-            '</span>' +
+        '<h3>Se encontraron ' + plural(todos.length, 'alumno') + ' en ' + plural(cursos.length, 'curso') + '</h3>' +
+        '<p class="silencio">Marca los cursos que quieres cargar.</p>' +
+        '<div class="fila" style="margin-bottom:.6rem">' +
+          '<button class="neutro chico" id="marcar-todos">Marcar todos</button>' +
+          '<button class="neutro chico" id="marcar-ninguno">Desmarcar todos</button>' +
+          cursos.map((c) => c.replace(/[^0-9]/g, '')).filter((n, i, a) => n && a.indexOf(n) === i).sort()
+            .map((n) => '<button class="neutro chico" data-nivel="' + n + '">Solo ' + n + '° medio</button>').join('') +
+        '</div>' +
+        '<div class="rejilla tres">' +
+        cursos.map((c) =>
+          '<label class="alternativa" style="margin:0">' +
+            '<input type="checkbox" data-curso="' + esc(c) + '" checked>' +
+            '<span><strong>' + esc(c) + '</strong><br><span class="silencio">' +
+              plural(conteo(c), 'alumno') + esc(regimenes(c)) + '</span></span>' +
           '</label>').join('') +
-        '<div class="fila fin" style="margin-top:.8rem"><button id="confirmar-importar">Importar seleccionados</button></div>';
+        '</div>' +
+        '<div class="fila fin" style="margin-top:.9rem">' +
+          '<span class="silencio crece" id="resumen-seleccion"></span>' +
+          '<button id="confirmar-importar">Importar seleccionados</button></div>';
+
+      const marcadas = () => $$('[data-curso]', previa).filter((c) => c.checked).map((c) => c.dataset.curso);
+      const refrescar = () => {
+        const n = todos.filter((a) => marcadas().includes(a.curso)).length;
+        $('#resumen-seleccion').textContent = 'Se cargaran ' + plural(n, 'alumno') + '.';
+        $('#confirmar-importar').disabled = n === 0;
+      };
+
+      $$('[data-curso]', previa).forEach((c) => c.addEventListener('change', refrescar));
+      $('#marcar-todos').addEventListener('click', () => {
+        $$('[data-curso]', previa).forEach((c) => { c.checked = true; });
+        refrescar();
+      });
+      $('#marcar-ninguno').addEventListener('click', () => {
+        $$('[data-curso]', previa).forEach((c) => { c.checked = false; });
+        refrescar();
+      });
+      $$('[data-nivel]', previa).forEach((boton) => boton.addEventListener('click', () => {
+        $$('[data-curso]', previa).forEach((c) => {
+          c.checked = c.dataset.curso.replace(/[^0-9]/g, '') === boton.dataset.nivel;
+        });
+        refrescar();
+      }));
+      refrescar();
 
       $('#confirmar-importar').addEventListener('click', async () => {
-        const elegidas = [...previa.querySelectorAll('[data-hoja]:checked')].map((c) => Number(c.dataset.hoja));
-        const alumnos = elegidas.flatMap((i) => hojas[i].alumnos);
-        if (!alumnos.length) return mostrarAviso($('#aviso'), 'No seleccionaste ninguna hoja con alumnos.');
-
+        const elegidos = marcadas();
+        const alumnos = todos.filter((a) => elegidos.includes(a.curso));
         const r = await api('/api/admin/alumnos/importar', { cuerpo: { alumnos } });
-        mostrarAviso($('#aviso'), r.creados + ' alumnos nuevos con código y ' + r.actualizados + ' actualizados.', 'ok');
+        mostrarAviso($('#aviso'),
+          plural(r.creados, 'alumno nuevo', 'alumnos nuevos') + ' con codigo y ' + r.actualizados + ' actualizados.', 'ok');
         caja.innerHTML = '';
         enrutar();
       });

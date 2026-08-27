@@ -24,9 +24,30 @@ export const AHORA = usarPostgres ? 'ahora_utc()' : "datetime('now')";
 
 let inicializada = false;
 
+// Columnas agregadas después de que ya había bases creadas. CREATE TABLE IF NOT
+// EXISTS no toca una tabla existente, así que hay que añadirlas aparte.
+const MIGRACIONES = [
+  "ALTER TABLE alumnos ADD COLUMN regimen TEXT NOT NULL DEFAULT ''",
+];
+
+async function migrar() {
+  for (const sentencia of MIGRACIONES) {
+    try {
+      await exec(sentencia);
+    } catch (error) {
+      // Que la columna ya exista es lo esperado en una base al día; cualquier
+      // otro error sí hay que verlo.
+      const mensaje = String(error.message || '').toLowerCase();
+      const yaExiste = mensaje.includes('duplicate column') || mensaje.includes('already exists');
+      if (!yaExiste) throw error;
+    }
+  }
+}
+
 export async function inicializar() {
   if (inicializada) return;
   const archivo = usarPostgres ? 'src/db/schema.postgres.sql' : 'src/db/schema.sql';
   await exec(fs.readFileSync(path.join(raiz, archivo), 'utf8'));
+  await migrar();
   inicializada = true;
 }

@@ -422,8 +422,9 @@ router.post('/alumnos', async (req, res) => {
 
   const codigo = await codigoUnico();
   const { id } = await db.run(
-    'INSERT INTO alumnos (matricula, rut, dv, nombre, curso, codigo) VALUES (?, ?, ?, ?, ?, ?)',
-    [texto(req.body?.matricula), texto(req.body?.rut), texto(req.body?.dv), nombre, texto(req.body?.curso).trim(), codigo]
+    'INSERT INTO alumnos (matricula, rut, dv, nombre, curso, regimen, codigo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [texto(req.body?.matricula), texto(req.body?.rut), texto(req.body?.dv), nombre,
+      texto(req.body?.curso).trim(), texto(req.body?.regimen), codigo]
   );
   res.status(201).json({ id, codigo });
 });
@@ -433,10 +434,11 @@ router.put('/alumnos/:id', async (req, res) => {
   if (!a) return res.status(404).json({ error: 'Alumno no encontrado.' });
 
   await db.run(
-    'UPDATE alumnos SET matricula = ?, rut = ?, dv = ?, nombre = ?, curso = ?, activo = ? WHERE id = ?',
+    'UPDATE alumnos SET matricula = ?, rut = ?, dv = ?, nombre = ?, curso = ?, regimen = ?, activo = ? WHERE id = ?',
     [
       texto(req.body?.matricula, a.matricula), texto(req.body?.rut, a.rut), texto(req.body?.dv, a.dv),
       texto(req.body?.nombre, a.nombre).trim() || a.nombre, texto(req.body?.curso, a.curso).trim(),
+      texto(req.body?.regimen, a.regimen),
       req.body?.activo === undefined ? a.activo : (req.body.activo ? 1 : 0),
       a.id,
     ]
@@ -465,6 +467,7 @@ const ALIAS_COLUMNAS = {
   curso: ['curso', 'nivel'],
   rut: ['cédula identidad', 'cedula identidad', 'rut', 'run'],
   dv: ['dv', 'dígito', 'digito'],
+  regimen: ['regimen', 'régimen'],
 };
 
 const limpiar = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -480,6 +483,14 @@ function detectarColumnas(filas) {
     if (mapa.nombre !== undefined) return { filaEncabezado: i, columnas: mapa };
   }
   return null;
+}
+
+// El libro de matrícula usa I (interno) y E (externo), a veces en minúscula.
+function normalizarRegimen(valor) {
+  const v = String(valor || '').trim().toUpperCase();
+  if (v.startsWith('I')) return 'Interno';
+  if (v.startsWith('E')) return 'Externo';
+  return '';
 }
 
 function extraerFilas(hoja) {
@@ -498,6 +509,7 @@ function extraerFilas(hoja) {
       curso: columnas.curso !== undefined ? String(fila[columnas.curso] || '').trim() : '',
       rut: columnas.rut !== undefined ? String(fila[columnas.rut] || '').trim() : '',
       dv: columnas.dv !== undefined ? String(fila[columnas.dv] || '').trim().toUpperCase() : '',
+      regimen: columnas.regimen !== undefined ? normalizarRegimen(fila[columnas.regimen]) : '',
     });
   }
   return { nombre: hoja.nombre, alumnos };
@@ -541,16 +553,17 @@ router.post('/alumnos/importar', async (req, res) => {
       if (!existente && matricula) existente = await db.get('SELECT * FROM alumnos WHERE matricula = ? AND matricula <> ?', [matricula, '']);
 
       if (existente) {
-        await db.run('UPDATE alumnos SET nombre = ?, curso = ?, matricula = ?, rut = ?, dv = ? WHERE id = ?', [
+        await db.run('UPDATE alumnos SET nombre = ?, curso = ?, matricula = ?, rut = ?, dv = ?, regimen = ? WHERE id = ?', [
           nombre, curso || existente.curso, matricula || existente.matricula, rut || existente.rut,
-          String(item?.dv || existente.dv || '').toUpperCase(), existente.id,
+          String(item?.dv || existente.dv || '').toUpperCase(),
+          String(item?.regimen || existente.regimen || ''), existente.id,
         ]);
         actualizados += 1;
       } else {
         const codigo = await codigoUnico();
         const { id } = await db.run(
-          'INSERT INTO alumnos (matricula, rut, dv, nombre, curso, codigo) VALUES (?, ?, ?, ?, ?, ?)',
-          [matricula, rut, String(item?.dv || '').toUpperCase(), nombre, curso, codigo]
+          'INSERT INTO alumnos (matricula, rut, dv, nombre, curso, regimen, codigo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [matricula, rut, String(item?.dv || '').toUpperCase(), nombre, curso, String(item?.regimen || ''), codigo]
         );
         nuevos.push({ id, nombre, curso, codigo });
         creados += 1;

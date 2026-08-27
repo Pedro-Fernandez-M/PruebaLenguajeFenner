@@ -2,6 +2,34 @@ import { api, $, esc, parrafos, mostrarAviso, fecha, barra, plural, ROMANO } fro
 
 const recargar = () => window.recargarVista();
 
+// Al guardar o crear se repinta la vista completa, lo que cerraria todos los
+// bloques. Se recuerda cual debe quedar abierto para no perder el lugar: con
+// decenas de preguntas, colapsar todo en cada guardado hace la carga inviable.
+let foco = null;
+
+function pedirFoco(tipo, id, enfocarCampo = false) {
+  foco = { tipo, id, enfocarCampo };
+  // Tras repintar, el enrutador vuelve al inicio de la pagina. Aqui se le avisa
+  // que este repintado es "quedarse donde estaba", no navegar a otra vista.
+  window.mantenerScroll = true;
+}
+
+function restaurarFoco() {
+  if (!foco) return;
+  const { tipo, id, enfocarCampo } = foco;
+  foco = null;
+
+  const caja = document.querySelector('[data-' + tipo + '="' + id + '"]');
+  if (!caja) return;
+
+  caja.open = true;
+  caja.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (enfocarCampo) {
+    const campo = caja.querySelector('[data-campo="enunciado"], [data-campo="titulo"]');
+    if (campo) campo.focus();
+  }
+}
+
 const LETRAS = ['A', 'B', 'C', 'D'];
 const EJES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
 const TIPOS_TEXTO = [
@@ -48,6 +76,7 @@ export async function vistaEditor(nodo, id) {
   conectarAjustes(prueba);
   conectarTextos(prueba, textos);
   conectarPreguntas(prueba, textos, preguntas);
+  restaurarFoco();
 }
 
 function seccionAjustes(p) {
@@ -129,9 +158,10 @@ function seccionTextos(textos) {
 
 function conectarTextos(prueba, textos) {
   $('#t-nuevo').addEventListener('click', async () => {
-    await api('/api/admin/pruebas/' + prueba.id + '/textos', {
+    const { id } = await api('/api/admin/pruebas/' + prueba.id + '/textos', {
       cuerpo: { titulo: 'Texto ' + (textos.length + 1), orden: textos.length + 1 },
     });
+    pedirFoco('texto', id, true);
     recargar();
   });
 
@@ -243,7 +273,8 @@ function tarjetaPregunta(p, textos) {
 
     '<div class="fila fin" style="margin-top:.8rem">' +
       '<button class="peligro chico" data-borrar-pregunta="' + p.id + '">Eliminar</button>' +
-      '<button class="chico" data-guardar-pregunta="' + p.id + '">Guardar pregunta</button>' +
+      '<button class="neutro chico" data-guardar-pregunta="' + p.id + '">Guardar</button>' +
+      '<button class="chico" data-guardar-y-seguir="' + p.id + '">Guardar y agregar otra</button>' +
     '</div></details>';
 }
 
@@ -266,22 +297,48 @@ function leerPregunta(caja) {
   return cuerpo;
 }
 
+/**
+ * Crea una pregunta y deja el editor listo para escribirla.
+ * Si se viene de "guardar y agregar otra", hereda texto asociado, OA, eje e
+ * indicador de la anterior: en una prueba real varias preguntas seguidas
+ * comparten esa clasificacion, y volver a elegirla cada vez es puro roce.
+ */
+async function agregarPregunta(prueba, numero, anterior = null) {
+  const cuerpo = { tipo: 'alternativas', numero, enunciado: '' };
+  if (anterior) {
+    cuerpo.texto_id = anterior.texto_id;
+    cuerpo.oa = anterior.oa;
+    cuerpo.eje = anterior.eje;
+    cuerpo.indicador = anterior.indicador;
+  }
+  const { id } = await api('/api/admin/pruebas/' + prueba.id + '/preguntas', { cuerpo });
+  pedirFoco('pregunta', id, true);
+  recargar();
+}
+
 function conectarPreguntas(prueba, textos, preguntas) {
-  $('#q-nueva').addEventListener('click', async () => {
-    await api('/api/admin/pruebas/' + prueba.id + '/preguntas', {
-      cuerpo: { tipo: 'alternativas', numero: preguntas.length + 1, enunciado: '' },
-    });
-    recargar();
-  });
+  $('#q-nueva').addEventListener('click', () => agregarPregunta(prueba, preguntas.length + 1));
 
   $('#q-pegar').addEventListener('click', () => formularioLote($('#caja-pegar'), prueba, textos));
 
   document.querySelectorAll('[data-guardar-pregunta]').forEach((boton) => {
     boton.addEventListener('click', async () => {
       const caja = boton.closest('[data-pregunta]');
-      await api('/api/admin/preguntas/' + boton.dataset.guardarPregunta, { metodo: 'PUT', cuerpo: leerPregunta(caja) });
+      const id = boton.dataset.guardarPregunta;
+      await api('/api/admin/preguntas/' + id, { metodo: 'PUT', cuerpo: leerPregunta(caja) });
       mostrarAviso($('#aviso'), 'Pregunta guardada.', 'ok');
+      pedirFoco('pregunta', id);
       recargar();
+    });
+  });
+
+  // El boton que hace usable la carga de una prueba larga: guarda y deja lista
+  // la siguiente, sin tener que volver arriba a buscar "Agregar pregunta".
+  document.querySelectorAll('[data-guardar-y-seguir]').forEach((boton) => {
+    boton.addEventListener('click', async () => {
+      const caja = boton.closest('[data-pregunta]');
+      await api('/api/admin/preguntas/' + boton.dataset.guardarYSeguir, { metodo: 'PUT', cuerpo: leerPregunta(caja) });
+      await agregarPregunta(prueba, preguntas.length + 1, leerPregunta(caja));
     });
   });
 

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS alumnos (
   dv        TEXT,
   nombre    TEXT    NOT NULL,
   curso     TEXT    NOT NULL DEFAULT '',
+  regimen   TEXT    NOT NULL DEFAULT '',
   codigo    TEXT    NOT NULL UNIQUE,
   activo    INTEGER NOT NULL DEFAULT 1,
   creado_en TEXT    NOT NULL DEFAULT ahora_utc()
