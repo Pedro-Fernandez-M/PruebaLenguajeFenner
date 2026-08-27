@@ -553,7 +553,10 @@ const etiquetaNivel = (n) => {
 
 export async function vistaInforme(nodo, id) {
   const curso = sessionStorage.getItem('curso-informe') || '';
-  const r = await api('/api/admin/pruebas/' + id + '/informe' + (curso ? '?curso=' + encodeURIComponent(curso) : ''));
+  const [r, establecimiento] = await Promise.all([
+    api('/api/admin/pruebas/' + id + '/informe' + (curso ? '?curso=' + encodeURIComponent(curso) : '')),
+    api('/api/admin/establecimiento'),
+  ]);
 
   if (!r.total_alumnos) {
     nodo.innerHTML = cabecera(r.prueba, 'informe') +
@@ -570,6 +573,7 @@ export async function vistaInforme(nodo, id) {
       '<div class="crece"></div>' +
       '<a href="/api/admin/pruebas/' + id + '/informe.csv' + (curso ? '?curso=' + encodeURIComponent(curso) : '') + '">' +
         '<button class="neutro">Descargar CSV</button></a>' +
+      '<a href="#prueba/' + id + '/informes-alumnos"><button class="secundario">Informes por alumno</button></a>' +
       '<button class="neutro" id="btn-recalcular">Recalcular</button>' +
       '<button onclick="window.print()">Imprimir</button>' +
     '</div>' +
@@ -581,6 +585,7 @@ export async function vistaInforme(nodo, id) {
       tarjetaDato('Preguntas', r.preguntas.length) +
     '</div>' +
 
+    portada(r, establecimiento) +
     seccionNiveles(r) +
     seccionEjes(r) +
     seccionTabla1(r) +
@@ -598,6 +603,31 @@ export async function vistaInforme(nodo, id) {
   });
 }
 
+/** Encabezado identificatorio, como el del informe oficial del DIA. */
+function portada(r, e) {
+  const ahora = new Date().toLocaleString('es-CL', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const dato = (etiqueta, valor) => valor
+    ? '<tr><td style="width:230px;color:var(--tinta-suave)">' + etiqueta + '</td><td><strong>' + esc(valor) + '</strong></td></tr>'
+    : '';
+
+  return '<div class="tarjeta"><h2>Informe de resultados</h2><table><tbody>' +
+    dato('Establecimiento', e.nombre) +
+    dato('RBD', e.rbd) +
+    dato('Comuna', e.comuna) +
+    dato('Prueba', r.prueba.titulo) +
+    dato('Asignatura', r.prueba.asignatura) +
+    dato('Nivel', r.prueba.nivel) +
+    dato('Curso', r.filtro_curso || 'Todos los cursos') +
+    dato('Estudiantes que considera este informe', String(r.total_alumnos)) +
+    dato('Fecha de generación', ahora) +
+    '</tbody></table>' +
+    '<p class="silencio" style="margin-top:1rem">Estos resultados sirven para ajustar la planificación ' +
+      'y focalizar el apoyo. No están pensados para calificar ni para comparar cursos entre sí.</p>' +
+    '</div>';
+}
+
 function seccionNiveles(r) {
   return '<div class="tarjeta"><h2>1. Resultados según niveles de logro</h2>' +
     '<p class="silencio">Nivel I: no logra los aprendizajes mínimos · Nivel II: logra parcialmente los OA · ' +
@@ -613,8 +643,9 @@ function seccionNiveles(r) {
 }
 
 function seccionEjes(r) {
-  return '<div class="tarjeta"><h2>2. Resultados según ejes de habilidad</h2>' +
-    '<p class="silencio">Porcentaje promedio de logro del curso en cada eje de comprensión lectora.</p>' +
+  return '<div class="tarjeta"><h2>2. Resultados por criterio</h2>' +
+    '<p class="silencio">Porcentaje promedio de logro del curso en cada criterio evaluado. ' +
+      'Una pregunta que declara dos criterios cuenta en ambos.</p>' +
     '<table><tbody>' +
     r.por_eje.map((e) =>
       '<tr><td style="width:230px">' + esc(e.eje) + '<br><span class="silencio">' + plural(e.preguntas, 'pregunta') + '</span></td>' +
@@ -675,8 +706,8 @@ function seccionConclusiones(r) {
   return '<div class="tarjeta"><h2>5. Lectura preliminar de los resultados</h2>' +
     '<ul>' +
       (ejes.length
-        ? '<li>Eje menos logrado: <strong>' + esc(ejes[0].eje) + '</strong> (' + ejes[0].porcentaje + '%). ' +
-          'Eje más logrado: <strong>' + esc(ejes[ejes.length - 1].eje) + '</strong> (' + ejes[ejes.length - 1].porcentaje + '%).</li>'
+        ? '<li>Criterio menos logrado: <strong>' + esc(ejes[0].eje) + '</strong> (' + ejes[0].porcentaje + '%). ' +
+          'Criterio más logrado: <strong>' + esc(ejes[ejes.length - 1].eje) + '</strong> (' + ejes[ejes.length - 1].porcentaje + '%).</li>'
         : '') +
       '<li><strong>' + bajoNivel1.porcentaje + '%</strong> del curso (' + plural(bajoNivel1.cantidad, 'estudiante') + ') está en Nivel I: ' +
         'no demuestra haber alcanzado los aprendizajes mínimos del nivel.</li>' +
@@ -686,7 +717,7 @@ function seccionConclusiones(r) {
     '<h3>Preguntas guía para el análisis</h3>' +
     '<ul class="silencio">' +
       '<li>¿Los resultados reflejan las habilidades y contenidos trabajados hasta ahora en el curso?</li>' +
-      '<li>¿Las preguntas con menor logro pertenecen a un mismo tipo de texto o a un mismo indicador?</li>' +
+      '<li>¿Las preguntas con menor logro pertenecen a un mismo texto o a un mismo criterio?</li>' +
       '<li>¿Algún distractor concentró un porcentaje alto? ¿Qué error de comprensión revela?</li>' +
       '<li>¿Qué OA conviene retomar antes de seguir avanzando en la planificación?</li>' +
     '</ul></div>';
@@ -806,4 +837,74 @@ function dibujarPreguntaPrevia(p) {
       (p.clave ? '' : ' <span class="etiqueta roja">sin clave</span>') +
     '</p>' +
   '</div>';
+}
+
+/* ============================================= INFORMES INDIVIDUALES EN BLOQUE */
+
+/**
+ * Un informe por estudiante, todos en una vista imprimible con salto de pagina
+ * entre uno y otro. Es la hoja que se le entrega a cada uno.
+ */
+export async function vistaInformesAlumnos(nodo, id) {
+  const curso = sessionStorage.getItem('curso-informe') || '';
+  const [r, establecimiento] = await Promise.all([
+    api('/api/admin/pruebas/' + id + '/informes-alumnos' + (curso ? '?curso=' + encodeURIComponent(curso) : '')),
+    api('/api/admin/establecimiento'),
+  ]);
+
+  if (!r.total) {
+    nodo.innerHTML = '<div class="fila no-imprimir"><a href="#prueba/' + id + '/informe" class="silencio">← Informe del curso</a></div>' +
+      '<div class="tarjeta"><p>Todavía no hay pruebas entregadas.</p></div>';
+    return;
+  }
+
+  nodo.innerHTML =
+    '<div class="fila no-imprimir"><h1 class="crece">Informes por estudiante</h1>' +
+      '<a href="#prueba/' + id + '/informe"><button class="neutro">Volver al informe</button></a>' +
+      '<button onclick="window.print()">Imprimir los ' + r.total + '</button></div>' +
+    '<p class="silencio no-imprimir">Una hoja por estudiante' +
+      (curso ? ' de ' + esc(curso) : '') + '. Al imprimir, cada informe empieza en una página nueva.</p>' +
+    r.informes.map((inf, i) => hojaDeAlumno(inf, establecimiento, i)).join('');
+}
+
+function hojaDeAlumno(inf, e, indice) {
+  const { intento, prueba } = inf;
+  const correctas = inf.preguntas.filter((p) => p.correcta).length;
+
+  return '<section class="hoja-curso"' + (indice ? ' style="break-before:page"' : '') + '>' +
+    '<div class="tarjeta">' +
+      '<div class="silencio" style="font-size:.8rem">' + esc(e.nombre || '') +
+        (e.rbd ? ' · RBD ' + esc(e.rbd) : '') + '</div>' +
+      '<h2 style="margin:.3rem 0">' + esc(intento.nombre) + '</h2>' +
+      '<p class="silencio">' + esc(prueba.titulo) + ' · ' + esc(intento.curso) +
+        ' · entregada el ' + fecha(intento.enviado_en) + '</p>' +
+
+      '<div class="rejilla tres" style="margin:1rem 0">' +
+        tarjetaDato('Logro', intento.porcentaje + '%') +
+        tarjetaDato('Puntaje', intento.puntaje + ' / ' + intento.puntaje_max) +
+        tarjetaDato('Nivel de logro', ROMANO[intento.nivel_logro] || '—') +
+      '</div>' +
+
+      '<h3>Desempeño por criterio</h3>' +
+      (inf.por_eje.length
+        ? '<table><tbody>' + inf.por_eje.map((c) =>
+            '<tr><td style="width:250px">' + esc(c.eje) + '</td>' +
+              '<td style="width:45%">' + barra(c.porcentaje) + '</td>' +
+              '<td><strong>' + c.porcentaje + '%</strong></td></tr>').join('') +
+          '</tbody></table>'
+        : '<p class="silencio">Las preguntas de esta prueba no tienen criterio asignado.</p>') +
+
+      '<h3 style="margin-top:1.2rem">Respuestas</h3>' +
+      '<p class="silencio">' + correctas + ' correctas de ' + inf.preguntas.length + '.</p>' +
+      '<div class="navegador">' +
+        inf.preguntas.map((p) =>
+          '<span class="marca-respuesta ' + (p.correcta ? 'ok' : (p.respondio ? 'mal' : 'vacia')) + '" ' +
+            'title="' + esc(p.eje || '') + '">' + p.numero + '</span>').join('') +
+      '</div>' +
+      '<p class="silencio" style="margin-top:.6rem;font-size:.8rem">' +
+        '<span class="marca-respuesta ok">■</span> correcta · ' +
+        '<span class="marca-respuesta mal">■</span> incorrecta · ' +
+        '<span class="marca-respuesta vacia">■</span> sin responder</p>' +
+    '</div>' +
+  '</section>';
 }

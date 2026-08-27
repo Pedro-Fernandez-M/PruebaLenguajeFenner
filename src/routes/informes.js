@@ -6,6 +6,15 @@ import { informeDePrueba, informeDeAlumno, recalcularIntento, NOMBRE_NIVEL } fro
 const router = express.Router();
 router.use(exigirProfesor);
 
+/** Datos del establecimiento que encabezan el informe, desde el entorno. */
+router.get('/establecimiento', (_req, res) => {
+  res.json({
+    nombre: process.env.ESTABLECIMIENTO || '',
+    rbd: process.env.RBD || '',
+    comuna: process.env.COMUNA || '',
+  });
+});
+
 /** Quiénes están rindiendo ahora y cuánto llevan avanzado. */
 router.get('/pruebas/:id/monitor', async (req, res) => {
   const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
@@ -42,55 +51,6 @@ router.delete('/intentos/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-/* -------------------------------------------- correccion de las de desarrollo */
-
-router.get('/pruebas/:id/correccion', async (req, res) => {
-  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
-
-  const preguntas = await db.all(
-    "SELECT * FROM preguntas WHERE prueba_id = ? AND tipo = 'desarrollo' ORDER BY numero",
-    [prueba.id]
-  );
-  const rubricas = await db.all(
-    'SELECT r.* FROM rubricas r JOIN preguntas p ON p.id = r.pregunta_id ' +
-      "WHERE p.prueba_id = ? AND p.tipo = 'desarrollo' ORDER BY r.codigo DESC",
-    [prueba.id]
-  );
-
-  const bloques = [];
-  for (const pregunta of preguntas) {
-    const respuestas = await db.all(
-      'SELECT r.id, r.respuesta_texto, r.codigo_rubrica, r.intento_id, a.nombre, a.curso ' +
-        'FROM respuestas r JOIN intentos i ON i.id = r.intento_id JOIN alumnos a ON a.id = i.alumno_id ' +
-        "WHERE r.pregunta_id = ? AND i.estado = 'enviado' ORDER BY a.curso, a.nombre",
-      [pregunta.id]
-    );
-    bloques.push({
-      pregunta: {
-        id: pregunta.id, numero: pregunta.numero, enunciado: pregunta.enunciado,
-        eje: pregunta.eje, oa: pregunta.oa, indicador: pregunta.indicador, puntaje: pregunta.puntaje,
-      },
-      rubricas: rubricas.filter((r) => r.pregunta_id === pregunta.id),
-      respuestas,
-    });
-  }
-
-  res.json({ prueba: { id: prueba.id, titulo: prueba.titulo }, bloques });
-});
-
-router.post('/respuestas/:id/codigo', async (req, res) => {
-  const codigo = Number(req.body?.codigo);
-  if (![0, 1, 2].includes(codigo)) return res.status(400).json({ error: 'El código debe ser 2, 1 o 0.' });
-
-  const respuesta = await db.get('SELECT * FROM respuestas WHERE id = ?', [req.params.id]);
-  if (!respuesta) return res.status(404).json({ error: 'Respuesta no encontrada.' });
-
-  await db.run('UPDATE respuestas SET codigo_rubrica = ?, corregida = 1 WHERE id = ?', [codigo, respuesta.id]);
-  const totales = await recalcularIntento(respuesta.intento_id);
-  res.json({ ok: true, intento: totales });
-});
-
 /* ------------------------------------------------------------------ informes */
 
 router.get('/pruebas/:id/informe', async (req, res) => {
@@ -103,6 +63,27 @@ router.get('/intentos/:id/informe', async (req, res) => {
   const informe = await informeDeAlumno(req.params.id);
   if (!informe) return res.status(404).json({ error: 'Intento no encontrado.' });
   res.json(informe);
+});
+
+/**
+ * Los informes individuales de toda la prueba, en un solo viaje.
+ * La profesora necesita entregarle su hoja a cada estudiante: pedirlos de a uno
+ * significaria 200 peticiones.
+ */
+router.get('/pruebas/:id/informes-alumnos', async (req, res) => {
+  const params = [req.params.id];
+  let sqlCurso = '';
+  if (req.query?.curso) { sqlCurso = ' AND a.curso = ?'; params.push(String(req.query.curso)); }
+
+  const intentos = await db.all(
+    'SELECT i.id FROM intentos i JOIN alumnos a ON a.id = i.alumno_id ' +
+      "WHERE i.prueba_id = ? AND i.estado = 'enviado'" + sqlCurso + ' ORDER BY a.curso, a.nombre',
+    params
+  );
+
+  const informes = [];
+  for (const i of intentos) informes.push(await informeDeAlumno(i.id));
+  res.json({ total: informes.length, informes });
 });
 
 /** Recorrige todos los intentos enviados (útil tras corregir una clave mal cargada). */

@@ -210,3 +210,12 @@ tbody tr:hover { background: #fafbfd; }
   .contenido { max-width: none; padding: 0; }
   .imprimible { display: block; }
 }
+
+/* Marcas de respuesta en el informe individual */
+.marca-respuesta {
+  display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem;
+  font-size: .78rem; font-weight: 600; border-radius: 6px; border: 1px solid;
+}
+.marca-respuesta.ok    { background: var(--verde-claro); color: var(--verde); border-color: #a9d6bf; }
+.marca-respuesta.mal   { background: var(--rojo-claro);  color: var(--rojo);  border-color: #e9c5c6; }
+.marca-respuesta.vacia { background: #eef1f5;            color: var(--tinta-suave); border-color: var(--borde); }
