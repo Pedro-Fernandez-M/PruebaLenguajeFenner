@@ -46,9 +46,20 @@ export async function crearApp() {
 
   app.get('/api/estado', (_req, res) => res.json({ ok: true, motor: db.driver }));
 
-  app.use(express.static(path.join(raiz, 'public'), { extensions: ['html'] }));
+  const carpetaPublica = path.join(raiz, 'public');
+  app.use(express.static(carpetaPublica, { extensions: ['html'] }));
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
+
+  // Respaldo para el portal del alumno. En Vercel los estaticos los sirve la CDN,
+  // pero toda ruta que no calce con un archivo termina en esta funcion; sin este
+  // manejador, "/" se quedaba sin respuesta y la invocacion moria.
+  app.get(/.*/, (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(carpetaPublica, 'index.html'), (error) => {
+      if (error) res.status(404).type('text/plain').send('Página no encontrada.');
+    });
+  });
 
   app.use((error, _req, res, _next) => {
     console.error('[error]', error);
