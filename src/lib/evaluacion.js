@@ -273,6 +273,49 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     enviado_en: i.enviado_en,
   }));
 
+  // Desglose por curso: una prueba suele rendirla mas de un curso y el equipo
+  // necesita compararlos sin volver a filtrar y mirar de a uno.
+  const porCurso = [];
+  const cursosPresentes = [...new Set(intentos.map((i) => i.curso).filter(Boolean))].sort();
+
+  for (const curso of cursosPresentes) {
+    const suyos = porAlumno.filter((a) => a.curso === curso);
+    const niveles = { 1: 0, 2: 0, 3: 0 };
+    for (const a of suyos) niveles[a.nivel_logro || 1] += 1;
+
+    // El logro por habilidad se recalcula sobre las respuestas de este curso.
+    const idsCurso = new Set(intentos.filter((i) => i.curso === curso).map((i) => i.id));
+    const acumulado = new Map();
+
+    for (const pregunta of preguntas) {
+      if (!pregunta.eje) continue;
+      const lista = (respuestasPorPregunta.get(pregunta.id) || []).filter((r) => idsCurso.has(r.intento_id));
+      const aciertos = lista.filter((r) => r.alternativa && r.alternativa === pregunta.clave).length;
+      const a = acumulado.get(pregunta.eje) || { obtenido: 0, maximo: 0 };
+      a.obtenido += aciertos * pregunta.puntaje;
+      a.maximo += pregunta.puntaje * suyos.length;
+      acumulado.set(pregunta.eje, a);
+    }
+
+    porCurso.push({
+      curso,
+      total: suyos.length,
+      promedio: suyos.length
+        ? Math.round((suyos.reduce((n, a) => n + (a.porcentaje || 0), 0) / suyos.length) * 10) / 10
+        : 0,
+      niveles: [1, 2, 3].map((n) => ({
+        nivel: n,
+        etiqueta: ['', 'Nivel I', 'Nivel II', 'Nivel III'][n],
+        cantidad: niveles[n],
+        porcentaje: pct(niveles[n], suyos.length),
+      })),
+      por_eje: EJES.filter((e) => acumulado.has(e)).map((eje) => ({
+        eje,
+        porcentaje: pct(acumulado.get(eje).obtenido, acumulado.get(eje).maximo),
+      })),
+    });
+  }
+
   const pendientesCorreccion = detallePreguntas.reduce((n, f) => n + (f.pendientes || 0), 0);
 
   const cursos = await db.all(
@@ -298,6 +341,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       : 0,
     distribucion_niveles: distribucionNiveles,
     por_eje: porEje,
+    por_curso: porCurso,
     preguntas: detallePreguntas,
     alumnos: porAlumno,
   };

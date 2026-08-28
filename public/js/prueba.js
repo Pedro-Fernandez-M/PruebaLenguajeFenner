@@ -449,6 +449,7 @@ export async function vistaInforme(nodo, id) {
       '<div class="crece"></div>' +
       '<a href="/api/admin/pruebas/' + id + '/informe.csv' + (curso ? '?curso=' + encodeURIComponent(curso) : '') + '">' +
         '<button class="neutro">Descargar CSV</button></a>' +
+      '<a href="#prueba/' + id + '/informes-cursos"><button class="secundario">Informes por curso</button></a>' +
       '<a href="#prueba/' + id + '/informes-alumnos"><button class="secundario">Informes por alumno</button></a>' +
       '<button class="neutro" id="btn-recalcular">Recalcular</button>' +
       '<button onclick="window.print()">Imprimir</button>' +
@@ -464,6 +465,7 @@ export async function vistaInforme(nodo, id) {
     portada(r, establecimiento) +
     seccionNiveles(r) +
     seccionEjes(r) +
+    seccionPorCurso(r) +
     seccionTabla1(r) +
     seccionPorAlumno(r) +
     seccionConclusiones(r);
@@ -532,8 +534,38 @@ function seccionEjes(r) {
     '</div>';
 }
 
+/**
+ * Comparacion entre cursos. Con una prueba que rinden seis cursos, mirarlos de a
+ * uno filtrando obliga a anotar los numeros aparte para poder compararlos.
+ */
+function seccionPorCurso(r) {
+  if (r.por_curso.length < 2) return '';
+  const habilidades = r.por_eje.map((e) => e.eje);
+
+  return '<div class="tarjeta tabla-scroll"><h2>3. Resultados por curso</h2>' +
+    '<table><thead><tr><th>Curso</th><th>Estudiantes</th><th>Logro</th>' +
+      '<th>Niveles de logro</th>' +
+      habilidades.map((h) => '<th>' + esc(h) + '</th>').join('') +
+    '</tr></thead><tbody>' +
+    r.por_curso.map((c) =>
+      '<tr><td><strong>' + esc(c.curso) + '</strong></td>' +
+        '<td class="silencio">' + c.total + '</td>' +
+        '<td>' + barra(c.promedio) + ' <strong>' + c.promedio + '%</strong></td>' +
+        '<td style="white-space:nowrap">' + c.niveles.map((n) =>
+          '<span class="etiqueta ' + (n.nivel === 3 ? 'verde' : n.nivel === 2 ? 'ambar' : 'roja') + '">' +
+          n.etiqueta.replace('Nivel ', '') + ': ' + n.cantidad + '</span> ').join('') + '</td>' +
+        habilidades.map((h) => {
+          const e = c.por_eje.find((x) => x.eje === h);
+          return '<td>' + (e ? e.porcentaje + '%' : '—') + '</td>';
+        }).join('') +
+      '</tr>').join('') +
+    '</tbody></table>' +
+    '<p class="silencio">Estos resultados sirven para focalizar el apoyo, no para ordenar cursos entre sí: ' +
+      'cada uno llega con una historia distinta.</p></div>';
+}
+
 function seccionTabla1(r) {
-  return '<div class="tarjeta tabla-scroll"><h2>3. Resultados por pregunta</h2>' +
+  return '<div class="tarjeta tabla-scroll"><h2>4. Resultados por pregunta</h2>' +
     '<p class="silencio">La alternativa correcta va destacada. Un distractor con alto porcentaje señala un error de comprensión que vale la pena indagar.</p>' +
     '<table><thead><tr>' +
       '<th>N°</th><th>Criterio</th><th>% respuestas</th><th>Logro</th>' +
@@ -552,7 +584,7 @@ function seccionTabla1(r) {
 }
 
 function seccionPorAlumno(r) {
-  return '<div class="tarjeta tabla-scroll"><h2>4. Resultados por estudiante</h2>' +
+  return '<div class="tarjeta tabla-scroll"><h2>5. Resultados por estudiante</h2>' +
     '<table><thead><tr><th>Estudiante</th><th>Curso</th><th>Puntaje</th><th>% logro</th><th>Nivel</th><th></th></tr></thead><tbody>' +
     r.alumnos.map((a) =>
       '<tr><td>' + esc(a.nombre) + '</td><td>' + esc(a.curso) + '</td>' +
@@ -568,7 +600,7 @@ function seccionConclusiones(r) {
   const preguntasDebiles = [...r.preguntas].sort((a, b) => a.logro - b.logro).slice(0, 5);
   const bajoNivel1 = r.distribucion_niveles.find((n) => n.nivel === 1);
 
-  return '<div class="tarjeta"><h2>5. Lectura preliminar de los resultados</h2>' +
+  return '<div class="tarjeta"><h2>6. Lectura preliminar de los resultados</h2>' +
     '<ul>' +
       (ejes.length
         ? '<li>Criterio menos logrado: <strong>' + esc(ejes[0].eje) + '</strong> (' + ejes[0].porcentaje + '%). ' +
@@ -748,5 +780,50 @@ function hojaDeAlumno(inf, e, indice) {
         '<span class="marca-respuesta mal">■</span> incorrecta · ' +
         '<span class="marca-respuesta vacia">■</span> sin responder</p>' +
     '</div>' +
+  '</section>';
+}
+
+/* ================================================ INFORMES POR CURSO EN BLOQUE */
+
+/**
+ * Un informe completo por cada curso que rindio, en hojas separadas. Es lo que
+ * se entrega en el consejo de profesores o se archiva por curso.
+ */
+export async function vistaInformesCursos(nodo, id) {
+  const establecimiento = await api('/api/admin/establecimiento');
+  const general = await api('/api/admin/pruebas/' + id + '/informe');
+
+  if (!general.total_alumnos) {
+    nodo.innerHTML = '<div class="fila no-imprimir"><a href="#prueba/' + id + '/informe" class="silencio">← Informe general</a></div>' +
+      '<div class="tarjeta"><p>Todavía no hay pruebas entregadas.</p></div>';
+    return;
+  }
+
+  const cursos = general.cursos_disponibles;
+  const informes = [];
+  for (const curso of cursos) {
+    informes.push(await api('/api/admin/pruebas/' + id + '/informe?curso=' + encodeURIComponent(curso)));
+  }
+
+  nodo.innerHTML =
+    '<div class="fila no-imprimir"><h1 class="crece">Informes por curso</h1>' +
+      '<a href="#prueba/' + id + '/informe"><button class="neutro">Informe general</button></a>' +
+      '<button onclick="window.print()">Imprimir los ' + informes.length + '</button></div>' +
+    '<p class="silencio no-imprimir">Un informe completo por curso. Al imprimir, cada uno empieza en una página nueva.</p>' +
+    informes.map((r, i) => hojaDeCurso(r, establecimiento, i)).join('');
+}
+
+function hojaDeCurso(r, e, indice) {
+  return '<section class="hoja-curso"' + (indice ? ' style="break-before:page"' : '') + '>' +
+    '<div class="tarjeta">' +
+      '<div class="silencio" style="font-size:.8rem">' + esc(e.nombre || '') +
+        (e.rbd ? ' · RBD ' + esc(e.rbd) : '') + '</div>' +
+      '<h2 style="margin:.3rem 0">' + esc(r.filtro_curso) + '</h2>' +
+      '<p class="silencio">' + esc(r.prueba.titulo) + ' · ' + plural(r.total_alumnos, 'estudiante') +
+        ' · logro promedio ' + r.promedio_logro + '%</p>' +
+    '</div>' +
+    seccionNiveles(r) +
+    seccionEjes(r) +
+    seccionPorAlumno(r) +
   '</section>';
 }

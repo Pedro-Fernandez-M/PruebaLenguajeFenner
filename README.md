@@ -106,15 +106,18 @@ Nivel II desde 40 %, Nivel III desde 70 %).
 ## El informe
 
 1. **Resultados según niveles de logro** — distribución de estudiantes en I / II / III.
-2. **Resultados por criterio** — porcentaje promedio de logro en cada criterio,
-   y además por tipo de texto.
-3. **Resultados por pregunta** — para cada pregunta, su OA, tipo de texto, eje e
-   indicador, y el **porcentaje que eligió cada alternativa**, incluida la opción
-   *N* (no responde). Un distractor sobre 30 % se marca en rojo.
-4. **Resultados por estudiante** — puntaje, porcentaje y nivel, con detalle individual
-   pregunta a pregunta.
-5. **Lectura preliminar** — eje más y menos logrado, preguntas más débiles y las
-   preguntas guía para el análisis pedagógico.
+2. **Resultados por habilidad** — porcentaje promedio de logro en cada una.
+3. **Resultados por curso** — cuando la prueba la rinde más de un curso: logro,
+   niveles y habilidades de cada uno, lado a lado.
+4. **Resultados por pregunta** — el **porcentaje que eligió cada alternativa**,
+   incluida la opción *N* (no responde). Un distractor sobre 30 % se marca en rojo.
+5. **Resultados por estudiante** — puntaje, porcentaje y nivel.
+6. **Lectura preliminar** — habilidad más y menos lograda, preguntas más débiles y
+   las preguntas guía para el análisis pedagógico.
+
+Dos botones generan además hojas imprimibles, cada una con salto de página:
+**Informes por curso** (un informe completo por curso) e **Informes por alumno**
+(una hoja por estudiante con su logro, su nivel y su desempeño por habilidad).
 
 El CSV trae una fila por alumno y una columna por pregunta con la letra marcada,
 más la clave y los niveles de logro.
