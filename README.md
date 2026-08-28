@@ -69,9 +69,9 @@ Las habilidades son tres y cada pregunta mide **exactamente una**: *Localizar*,
 *Interpretar y relacionar* y *Reflexionar*. El N° de OA y el indicador quedan como
 datos opcionales.
 
-Cada docente tiene su cuenta y ve **solo sus propias pruebas**. El administrador le
-asigna los cursos que evalúa, y con eso la nómina y los informes le muestran solo a
-sus estudiantes.
+Cada docente tiene su cuenta y ve **solo sus propias pruebas**: abrir la de una
+colega devuelve un error, no la prueba con sus claves. La nómina, en cambio, es
+común: cualquier docente puede evaluar a cualquier curso.
 
 Los **niveles de logro** (I, II, III) se calculan sobre el porcentaje de logro de
 cada estudiante, con umbrales configurables prueba por prueba (por defecto:

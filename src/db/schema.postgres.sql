@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS profesores (
   email         TEXT    NOT NULL UNIQUE,
   password_hash TEXT    NOT NULL,
   rol           TEXT    NOT NULL DEFAULT 'profesor',
-  cursos        TEXT    NOT NULL DEFAULT '',
   activo        INTEGER NOT NULL DEFAULT 1,
   creado_en     TEXT    NOT NULL DEFAULT ahora_utc()
 );

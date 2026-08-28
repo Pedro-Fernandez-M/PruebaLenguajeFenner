@@ -141,11 +141,7 @@ afirmar(Number(max.n) === 1, 'COALESCE(MAX())', 'n=' + max.n);
 const login = await get('SELECT * FROM profesores WHERE lower(email) = ?', ['d@liceo.cl']);
 afirmar(!!login, 'lower(email) en el inicio de sesión');
 
-// Cada docente administra sus cursos y ve solo sus pruebas.
-await run('UPDATE profesores SET cursos = ? WHERE id = ?', ['2° A, 2° B', profesor.id]);
-const conCursos = await get('SELECT cursos FROM profesores WHERE id = ?', [profesor.id]);
-afirmar(conCursos.cursos === '2° A, 2° B', 'los cursos de la docente se guardan', conCursos.cursos);
-
+// Cada docente ve solo sus propias pruebas; la nomina es comun.
 const otra = await run("INSERT INTO profesores (nombre, email, password_hash) VALUES (?, ?, 'x')", ['Otra', 'o@liceo.cl']);
 const suyas = await all('SELECT id FROM pruebas WHERE profesor_id = ?', [otra.id]);
 afirmar(suyas.length === 0, 'una docente nueva no ve pruebas ajenas');

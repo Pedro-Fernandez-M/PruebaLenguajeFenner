@@ -255,38 +255,15 @@ router.delete('/preguntas/:id', async (req, res) => {
 
 /* ------------------------------------------------------------------ alumnos */
 
-/**
- * Cursos que administra quien pide. Vacio significa todos: asi el
- * administrador ve el liceo completo y una docente recien creada no queda sin
- * nada mientras no se le asignen los suyos.
- */
-function cursosDe(req) {
-  return String(req.profesor.cursos || '').split(',').map((c) => c.trim()).filter(Boolean);
-}
-
+// La nomina es comun: cualquier docente puede evaluar a cualquier curso. Lo que
+// no se comparte son las pruebas, que son de quien las escribio.
 router.get('/alumnos', async (req, res) => {
   const curso = texto(req.query?.curso).trim();
-  const mios = cursosDe(req);
-
-  let filas = curso
+  const filas = curso
     ? await db.all('SELECT * FROM alumnos WHERE curso = ? ORDER BY nombre', [curso])
     : await db.all('SELECT * FROM alumnos ORDER BY curso, nombre');
-
-  if (mios.length) filas = filas.filter((a) => mios.includes(a.curso));
-
-  const cursos = [];
-  const cuenta = new Map();
-  for (const a of filas) if (a.curso) cuenta.set(a.curso, (cuenta.get(a.curso) || 0) + 1);
-
-  // Con filtro por curso los totales saldrian de un solo curso; se piden aparte.
-  if (curso) {
-    const todos = await db.all("SELECT curso, COUNT(*) AS n FROM alumnos WHERE curso <> '' GROUP BY curso ORDER BY curso");
-    for (const c of todos) if (!mios.length || mios.includes(c.curso)) cursos.push(c);
-  } else {
-    for (const [c, n] of [...cuenta.entries()].sort()) cursos.push({ curso: c, n });
-  }
-
-  res.json({ alumnos: filas, cursos, mis_cursos: mios });
+  const cursos = await db.all("SELECT curso, COUNT(*) AS n FROM alumnos WHERE curso <> '' GROUP BY curso ORDER BY curso");
+  res.json({ alumnos: filas, cursos });
 });
 
 async function codigoUnico() {

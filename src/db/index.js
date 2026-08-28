@@ -25,8 +25,9 @@ let inicializada = false;
 // EXISTS no toca una tabla existente, así que hay que añadirlas aparte.
 const MIGRACIONES = [
   "ALTER TABLE alumnos ADD COLUMN regimen TEXT NOT NULL DEFAULT ''",
-  // Cada docente administra sus propios cursos.
-  "ALTER TABLE profesores ADD COLUMN cursos TEXT NOT NULL DEFAULT ''",
+  // La columna se agrego para repartir cursos entre docentes; se descarto
+  // porque cualquiera evalua a cualquier curso.
+  'ALTER TABLE profesores DROP COLUMN cursos',
   // Los textos se entregan impresos: la plataforma solo guarda preguntas.
   'ALTER TABLE preguntas DROP COLUMN texto_id',
   'ALTER TABLE preguntas DROP COLUMN tipo_texto',

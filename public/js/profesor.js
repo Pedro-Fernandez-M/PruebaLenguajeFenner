@@ -292,7 +292,7 @@ async function vistaCodigos(nodo, curso) {
 /* ----------------------------------------------------------- vista: cuenta */
 
 async function vistaCuenta(nodo) {
-  const { profesores, cursos_disponibles } = await api('/api/auth/profesores');
+  const { profesores } = await api('/api/auth/profesores');
   const esAdmin = docente.rol === 'admin';
 
   nodo.innerHTML =
@@ -304,12 +304,10 @@ async function vistaCuenta(nodo) {
       '</div><div class="fila fin"><button id="c-guardar">Guardar</button></div></div>' +
 
     '<div class="tarjeta"><h2>Docentes</h2>' +
-      (esAdmin
-        ? '<p class="silencio">Cada docente ve solo sus propias pruebas. Los cursos marcados son los ' +
-          'estudiantes que puede evaluar; sin ninguno marcado, ve todos.</p>'
-        : '<p class="silencio">Tus pruebas y tus cursos son solo tuyos: las demás docentes no los ven.</p>') +
-      profesores.map((p) => fichaDocente(p, cursos_disponibles, esAdmin)).join('') +
-      (esAdmin ? formularioDocente(cursos_disponibles) : '') +
+      '<p class="silencio">Cualquier docente puede evaluar a cualquier curso. Lo que no se ' +
+        'comparte son las pruebas: cada una ve solo las suyas.</p>' +
+      profesores.map((p) => fichaDocente(p, esAdmin)).join('') +
+      (esAdmin ? formularioDocente() : '') +
     '</div>' +
     '<p><a href="#pruebas">Volver a las pruebas</a></p>';
 
@@ -327,14 +325,6 @@ async function vistaCuenta(nodo) {
 
   if (!esAdmin) return;
 
-  $$('[data-guardar-cursos]').forEach((boton) => boton.addEventListener('click', async () => {
-    const ficha = boton.closest('[data-docente]');
-    const cursos = $$('[data-curso]', ficha).filter((c) => c.checked).map((c) => c.dataset.curso).join(', ');
-    await api('/api/auth/profesores/' + boton.dataset.guardarCursos + '/cursos', { metodo: 'PUT', cuerpo: { cursos } });
-    mostrarAviso($('#aviso'), 'Cursos actualizados.', 'ok');
-    enrutar();
-  }));
-
   $$('[data-nueva-clave]').forEach((boton) => boton.addEventListener('click', async () => {
     const ficha = boton.closest('[data-docente]');
     const clave = $('[data-clave]', ficha).value.trim();
@@ -350,7 +340,6 @@ async function vistaCuenta(nodo) {
         cuerpo: {
           nombre: $('#d-nombre').value, email: $('#d-email').value,
           password: $('#d-password').value, rol: $('#d-rol').value,
-          cursos: $$('[data-curso-nuevo]').filter((c) => c.checked).map((c) => c.dataset.cursoNuevo).join(', '),
         },
       });
       enrutar();
@@ -360,33 +349,26 @@ async function vistaCuenta(nodo) {
   });
 }
 
-function fichaDocente(p, cursosDisponibles, esAdmin) {
-  const suyos = String(p.cursos || '').split(',').map((c) => c.trim()).filter(Boolean);
+function fichaDocente(p, esAdmin) {
+  const cabecera = '<summary><strong>' + esc(p.nombre) + '</strong> ' +
+    '<span class="silencio">' + esc(p.email) + '</span>' +
+    (p.rol === 'admin' ? ' <span class="etiqueta">administrador</span>' : '') +
+    '</summary>';
 
-  return '<details class="tarjeta" style="margin:.6rem 0" data-docente="' + p.id + '">' +
-    '<summary><strong>' + esc(p.nombre) + '</strong> ' +
-      '<span class="silencio">' + esc(p.email) + '</span> ' +
-      (p.rol === 'admin' ? '<span class="etiqueta">administrador</span> ' : '') +
-      '<span class="etiqueta gris">' + (suyos.length ? suyos.join(', ') : 'todos los cursos') + '</span>' +
-    '</summary>' +
-    (esAdmin
-      ? '<div style="margin-top:.8rem"><label>Cursos que administra</label>' +
-          '<div class="fila" style="gap:.4rem">' +
-            cursosDisponibles.map((c) =>
-              '<label class="alternativa" style="margin:0"><input type="checkbox" data-curso="' + esc(c) + '"' +
-              (suyos.includes(c) ? ' checked' : '') + '><span>' + esc(c) + '</span></label>').join('') +
-          '</div>' +
-          '<p class="silencio">Sin ninguno marcado ve todos los cursos.</p>' +
-          '<div class="fila fin"><button class="chico" data-guardar-cursos="' + p.id + '">Guardar cursos</button></div>' +
-          '<label style="margin-top:.8rem">Restablecer su contraseña</label>' +
-          '<div class="fila"><input data-clave placeholder="Nueva contraseña" style="max-width:280px">' +
-            '<button class="neutro chico" data-nueva-clave="' + p.id + '">Restablecer</button></div>' +
-        '</div>'
-      : '') +
+  // Solo el administrador puede restablecer una contraseña olvidada; para el
+  // resto la ficha es informativa.
+  if (!esAdmin) return '<div class="tarjeta" style="margin:.6rem 0">' + cabecera.replace(/summary/g, 'div') + '</div>';
+
+  return '<details class="tarjeta" style="margin:.6rem 0" data-docente="' + p.id + '">' + cabecera +
+    '<div style="margin-top:.8rem"><label>Restablecer su contraseña</label>' +
+      '<div class="fila"><input data-clave placeholder="Nueva contraseña" style="max-width:280px">' +
+        '<button class="neutro chico" data-nueva-clave="' + p.id + '">Restablecer</button></div>' +
+      '<p class="silencio">Úsalo solo si la olvidó; después que la cambie ella en «Mi cuenta».</p>' +
+    '</div>' +
   '</details>';
 }
 
-function formularioDocente(cursosDisponibles) {
+function formularioDocente() {
   return '<h3 style="margin-top:1.4rem">Agregar docente</h3>' +
     '<div class="rejilla dos">' +
       '<div class="campo"><label>Nombre</label><input id="d-nombre"></div>' +
@@ -395,11 +377,6 @@ function formularioDocente(cursosDisponibles) {
       '<div class="campo"><label>Rol</label><select id="d-rol">' +
         '<option value="profesor">Profesora</option><option value="admin">Administrador</option></select></div>' +
     '</div>' +
-    '<div class="campo"><label>Cursos que administrará</label><div class="fila" style="gap:.4rem">' +
-      cursosDisponibles.map((c) =>
-        '<label class="alternativa" style="margin:0"><input type="checkbox" data-curso-nuevo="' + esc(c) + '">' +
-        '<span>' + esc(c) + '</span></label>').join('') +
-    '</div></div>' +
     '<div class="fila fin"><button id="d-crear">Crear docente</button></div>';
 }
 

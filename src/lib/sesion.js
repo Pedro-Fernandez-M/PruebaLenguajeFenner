@@ -13,7 +13,7 @@ const opcionesCookie = {
 };
 
 export function iniciarSesionProfesor(res, profesor) {
-  const token = crearToken({ tipo: 'profesor', id: profesor.id, nombre: profesor.nombre, rol: profesor.rol, cursos: profesor.cursos || '' }, 12);
+  const token = crearToken({ tipo: 'profesor', id: profesor.id, nombre: profesor.nombre, rol: profesor.rol }, 12);
   res.cookie(COOKIE_PROFESOR, token, { ...opcionesCookie, maxAge: 12 * 3600_000 });
 }
 
