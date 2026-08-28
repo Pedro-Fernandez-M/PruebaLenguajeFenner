@@ -77,15 +77,6 @@ CREATE TABLE IF NOT EXISTS opciones (
   UNIQUE(pregunta_id, letra)
 );
 
-CREATE TABLE IF NOT EXISTS rubricas (
-  id          INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  pregunta_id INTEGER NOT NULL REFERENCES preguntas(id) ON DELETE CASCADE,
-  codigo      INTEGER NOT NULL,
-  descripcion TEXT    NOT NULL DEFAULT '',
-  ejemplos    TEXT    NOT NULL DEFAULT '',
-  UNIQUE(pregunta_id, codigo)
-);
-
 CREATE TABLE IF NOT EXISTS intentos (
   id          INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   prueba_id   INTEGER NOT NULL REFERENCES pruebas(id) ON DELETE CASCADE,

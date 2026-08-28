@@ -46,11 +46,15 @@ try {
 const tablas = await all(
   "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
 );
-const esperadas = ['alumnos', 'intentos', 'opciones', 'preguntas', 'profesores', 'pruebas', 'respuestas', 'rubricas', 'textos'];
+const esperadas = ['alumnos', 'intentos', 'opciones', 'preguntas', 'profesores', 'pruebas', 'respuestas'];
 afirmar(
   esperadas.every((t) => tablas.some((f) => f.tablename === t)),
-  'están las 9 tablas',
+  'están las 7 tablas',
   tablas.map((t) => t.tablename).join(', ')
+);
+afirmar(
+  !tablas.some((f) => f.tablename === 'textos') && !tablas.some((f) => f.tablename === 'rubricas'),
+  'ya no existen textos ni rubricas: los textos se entregan impresos'
 );
 
 console.log('\nFormato de fecha compatible con SQLite');
@@ -72,15 +76,22 @@ const prueba = await run(
   'INSERT INTO pruebas (titulo, profesor_id) VALUES (?, ?)',
   ['Prueba de humo', profesor.id]
 );
-const texto = await run(
-  'INSERT INTO textos (prueba_id, orden, titulo, tipo_texto, contenido) VALUES (?, ?, ?, ?, ?)',
-  [prueba.id, 1, 'Un texto', 'Poema', 'Verso uno\nVerso dos']
-);
 const pregunta = await run(
-  'INSERT INTO preguntas (prueba_id, texto_id, numero, tipo, enunciado, eje, clave, puntaje) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  [prueba.id, texto.id, 1, 'alternativas', '¿Cuál es el tema?', 'Reflexionar', 'B', 1]
+  'INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, eje, clave, puntaje) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  [prueba.id, 1, 'alternativas', '¿Cuál es el tema?', 'Reflexionar', 'B', 1]
 );
-afirmar(prueba.id > 0 && texto.id > 0 && pregunta.id > 0, 'las claves foráneas encadenan bien');
+afirmar(prueba.id > 0 && pregunta.id > 0, 'las claves foráneas encadenan bien');
+
+// Se guardan A–E; en una prueba de cuatro opciones la E queda vacía y no se muestra.
+for (const letra of ['A', 'B', 'C', 'D', 'E']) {
+  await run('INSERT INTO opciones (pregunta_id, letra, contenido) VALUES (?, ?, ?)',
+    [pregunta.id, letra, letra === 'E' ? '' : 'Alternativa ' + letra]);
+}
+const conTexto = await all(
+  "SELECT letra FROM opciones WHERE pregunta_id = ? AND trim(contenido) <> '' ORDER BY letra",
+  [pregunta.id]
+);
+afirmar(conTexto.length === 4, 'se guardan A–E y solo cuatro llevan contenido', conTexto.map((o) => o.letra).join(''));
 
 console.log('\nConsultas reales de la aplicación');
 const alumno = await run(
@@ -129,6 +140,15 @@ afirmar(Number(max.n) === 1, 'COALESCE(MAX())', 'n=' + max.n);
 // lower(email) del inicio de sesión docente.
 const login = await get('SELECT * FROM profesores WHERE lower(email) = ?', ['d@liceo.cl']);
 afirmar(!!login, 'lower(email) en el inicio de sesión');
+
+// Cada docente administra sus cursos y ve solo sus pruebas.
+await run('UPDATE profesores SET cursos = ? WHERE id = ?', ['2° A, 2° B', profesor.id]);
+const conCursos = await get('SELECT cursos FROM profesores WHERE id = ?', [profesor.id]);
+afirmar(conCursos.cursos === '2° A, 2° B', 'los cursos de la docente se guardan', conCursos.cursos);
+
+const otra = await run("INSERT INTO profesores (nombre, email, password_hash) VALUES (?, ?, 'x')", ['Otra', 'o@liceo.cl']);
+const suyas = await all('SELECT id FROM pruebas WHERE profesor_id = ?', [otra.id]);
+afirmar(suyas.length === 0, 'una docente nueva no ve pruebas ajenas');
 
 console.log('\nRestricciones');
 try {

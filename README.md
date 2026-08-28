@@ -52,21 +52,26 @@ npm run reset
 
 ## Cómo se modela una prueba
 
-Una **prueba** contiene **textos**, y cada texto es el estímulo de un grupo de
-**preguntas de alternativas**. Cada pregunta declara **un criterio**, que es lo que
-agrupa el informe:
+Una **prueba** es una lista de **preguntas de alternativas**, numeradas de corrido.
+Cada pregunta declara **una habilidad**, que es lo que agrupa el informe:
 
 ```
-Texto  →  Preguntas con alternativas  →  Cada una con su criterio
+Preguntas 1, 2, 3…  →  Cada una con su habilidad  →  Informe por habilidad
 ```
+
+**Los textos no van en la plataforma**: se entregan impresos a los estudiantes, y
+en pantalla solo aparecen las preguntas.
 
 Las alternativas van de **A a E**; las que se dejen vacías no se muestran, así que
 una prueba de cuatro opciones y otra de cinco conviven sin configurar nada.
 
-El criterio se escribe libre, con sugerencias, porque cada prueba usa el suyo:
-unas los ejes del DIA (*Localizar*, *Interpretar y relacionar*, *Reflexionar*) y
-otras *Extracción de información*, *Construcción de significado* o *Incremento de
-vocabulario*. El N° de OA y el indicador quedan como datos opcionales.
+Las habilidades son tres y cada pregunta mide **exactamente una**: *Localizar*,
+*Interpretar y relacionar* y *Reflexionar*. El N° de OA y el indicador quedan como
+datos opcionales.
+
+Cada docente tiene su cuenta y ve **solo sus propias pruebas**. El administrador le
+asigna los cursos que evalúa, y con eso la nómina y los informes le muestran solo a
+sus estudiantes.
 
 Los **niveles de logro** (I, II, III) se calculan sobre el porcentaje de logro de
 cada estudiante, con umbrales configurables prueba por prueba (por defecto:

@@ -31,6 +31,8 @@ const MIGRACIONES = [
   'ALTER TABLE preguntas DROP COLUMN texto_id',
   'ALTER TABLE preguntas DROP COLUMN tipo_texto',
   'DROP TABLE IF EXISTS textos',
+  // Las rubricas solo servian a las preguntas de desarrollo.
+  'DROP TABLE IF EXISTS rubricas',
 ];
 
 async function migrar() {
