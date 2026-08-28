@@ -25,6 +25,12 @@ let inicializada = false;
 // EXISTS no toca una tabla existente, así que hay que añadirlas aparte.
 const MIGRACIONES = [
   "ALTER TABLE alumnos ADD COLUMN regimen TEXT NOT NULL DEFAULT ''",
+  // Cada docente administra sus propios cursos.
+  "ALTER TABLE profesores ADD COLUMN cursos TEXT NOT NULL DEFAULT ''",
+  // Los textos se entregan impresos: la plataforma solo guarda preguntas.
+  'ALTER TABLE preguntas DROP COLUMN texto_id',
+  'ALTER TABLE preguntas DROP COLUMN tipo_texto',
+  'DROP TABLE IF EXISTS textos',
 ];
 
 async function migrar() {
@@ -32,11 +38,14 @@ async function migrar() {
     try {
       await exec(sentencia);
     } catch (error) {
-      // Que la columna ya exista es lo esperado en una base al día; cualquier
-      // otro error sí hay que verlo.
+      // Que la columna ya exista, o que ya se haya eliminado, es lo esperado en
+      // una base al día; cualquier otro error sí hay que verlo.
       const mensaje = String(error.message || '').toLowerCase();
-      const yaExiste = mensaje.includes('duplicate column') || mensaje.includes('already exists');
-      if (!yaExiste) throw error;
+      const yaAplicada = mensaje.includes('duplicate column')
+        || mensaje.includes('already exists')
+        || mensaje.includes('no such column')
+        || mensaje.includes('does not exist');
+      if (!yaAplicada) throw error;
     }
   }
 }

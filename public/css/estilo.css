@@ -219,3 +219,6 @@ tbody tr:hover { background: #fafbfd; }
 .marca-respuesta.ok    { background: var(--verde-claro); color: var(--verde); border-color: #a9d6bf; }
 .marca-respuesta.mal   { background: var(--rojo-claro);  color: var(--rojo);  border-color: #e9c5c6; }
 .marca-respuesta.vacia { background: #eef1f5;            color: var(--tinta-suave); border-color: var(--borde); }
+
+/* Prueba sin textos: las preguntas en una columna centrada y legible */
+.examen-simple { max-width: 760px; }

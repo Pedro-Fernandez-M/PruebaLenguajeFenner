@@ -2,7 +2,7 @@ import express from 'express';
 import * as db from '../db/index.js';
 import { exigirProfesor } from '../lib/sesion.js';
 import { generarCodigo } from '../lib/seguridad.js';
-import { EJES, TIPOS_TEXTO, LETRAS } from '../lib/evaluacion.js';
+import { EJES, LETRAS } from '../lib/evaluacion.js';
 
 const router = express.Router();
 router.use(exigirProfesor);
@@ -14,22 +14,45 @@ const entero = (v, porDefecto = null) => {
 };
 
 router.get('/catalogos', (_req, res) => {
-  res.json({ ejes: EJES, tipos_texto: TIPOS_TEXTO, letras: LETRAS });
+  res.json({ ejes: EJES, letras: LETRAS });
 });
 
 /* ------------------------------------------------------------------ pruebas */
 
-router.get('/pruebas', async (_req, res) => {
+// Cada docente trabaja con sus propias pruebas; el administrador las ve todas.
+const soloSuyas = (req) => req.profesor.rol === 'admin' ? '' : ' WHERE p.profesor_id = ?';
+const paramsSuyas = (req) => req.profesor.rol === 'admin' ? [] : [req.profesor.id];
+
+router.get('/pruebas', async (req, res) => {
   const pruebas = await db.all(
-    'SELECT p.*, ' +
+    'SELECT p.*, pr.nombre AS docente, ' +
       '(SELECT COUNT(*) FROM preguntas q WHERE q.prueba_id = p.id) AS total_preguntas, ' +
-      '(SELECT COUNT(*) FROM textos t WHERE t.prueba_id = p.id) AS total_textos, ' +
       "(SELECT COUNT(*) FROM intentos i WHERE i.prueba_id = p.id AND i.estado = 'enviado') AS total_enviados, " +
       "(SELECT COUNT(*) FROM intentos i WHERE i.prueba_id = p.id AND i.estado = 'en_curso') AS total_en_curso " +
-      'FROM pruebas p ORDER BY p.creado_en DESC'
+      'FROM pruebas p LEFT JOIN profesores pr ON pr.id = p.profesor_id' +
+      soloSuyas(req) + ' ORDER BY p.creado_en DESC',
+    paramsSuyas(req)
   );
   res.json({ pruebas });
 });
+
+/**
+ * Devuelve la prueba solo si le pertenece a quien la pide.
+ * Sin esto, cambiar el numero en la direccion bastaria para abrir la prueba de
+ * otra colega, con sus claves incluidas.
+ */
+async function pruebaPropia(req, res) {
+  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
+  if (!prueba) {
+    res.status(404).json({ error: 'Prueba no encontrada.' });
+    return null;
+  }
+  if (req.profesor.rol !== 'admin' && prueba.profesor_id !== req.profesor.id) {
+    res.status(403).json({ error: 'Esa prueba es de otra docente.' });
+    return null;
+  }
+  return prueba;
+}
 
 router.post('/pruebas', async (req, res) => {
   const titulo = texto(req.body?.titulo).trim();
@@ -55,34 +78,27 @@ router.post('/pruebas', async (req, res) => {
 });
 
 router.get('/pruebas/:id', async (req, res) => {
-  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
 
-  const textos = await db.all('SELECT * FROM textos WHERE prueba_id = ? ORDER BY orden, id', [prueba.id]);
   const preguntas = await db.all('SELECT * FROM preguntas WHERE prueba_id = ? ORDER BY numero', [prueba.id]);
   const opciones = await db.all(
     'SELECT o.* FROM opciones o JOIN preguntas p ON p.id = o.pregunta_id WHERE p.prueba_id = ? ORDER BY o.letra',
     [prueba.id]
   );
-  const rubricas = await db.all(
-    'SELECT r.* FROM rubricas r JOIN preguntas p ON p.id = r.pregunta_id WHERE p.prueba_id = ? ORDER BY r.codigo DESC',
-    [prueba.id]
-  );
 
   res.json({
     prueba,
-    textos,
     preguntas: preguntas.map((p) => ({
       ...p,
       opciones: opciones.filter((o) => o.pregunta_id === p.id),
-      rubricas: rubricas.filter((r) => r.pregunta_id === p.id),
     })),
   });
 });
 
 router.put('/pruebas/:id', async (req, res) => {
-  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
 
   const estado = ['borrador', 'publicada', 'cerrada'].includes(req.body?.estado) ? req.body.estado : prueba.estado;
 
@@ -108,14 +124,16 @@ router.put('/pruebas/:id', async (req, res) => {
 });
 
 router.delete('/pruebas/:id', async (req, res) => {
-  await db.run('DELETE FROM pruebas WHERE id = ?', [req.params.id]);
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
+  await db.run('DELETE FROM pruebas WHERE id = ?', [prueba.id]);
   res.json({ ok: true });
 });
 
-/** Copia una prueba completa (textos, preguntas, opciones y rúbricas) como borrador. */
+/** Copia una prueba completa (preguntas y alternativas) como borrador. */
 router.post('/pruebas/:id/duplicar', async (req, res) => {
-  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
 
   const nuevaId = await db.tx(async () => {
     const { id } = await db.run(
@@ -125,26 +143,15 @@ router.post('/pruebas/:id/duplicar', async (req, res) => {
         prueba.duracion_min, prueba.cursos, prueba.nivel2_min, prueba.nivel3_min, req.profesor.id]
     );
 
-    const mapaTextos = new Map();
-    for (const t of await db.all('SELECT * FROM textos WHERE prueba_id = ? ORDER BY orden, id', [prueba.id])) {
-      const nuevo = await db.run(
-        'INSERT INTO textos (prueba_id, orden, titulo, autor, fuente, tipo_texto, contenido) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [id, t.orden, t.titulo, t.autor, t.fuente, t.tipo_texto, t.contenido]
-      );
-      mapaTextos.set(t.id, nuevo.id);
-    }
 
     for (const p of await db.all('SELECT * FROM preguntas WHERE prueba_id = ? ORDER BY numero', [prueba.id])) {
       const nueva = await db.run(
-        'INSERT INTO preguntas (prueba_id, texto_id, numero, tipo, enunciado, cita, oa, eje, indicador, tipo_texto, clave, puntaje) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, mapaTextos.get(p.texto_id) ?? null, p.numero, p.tipo, p.enunciado, p.cita, p.oa, p.eje, p.indicador, p.tipo_texto, p.clave, p.puntaje]
+        'INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, cita, oa, eje, indicador, clave, puntaje) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, p.numero, p.tipo, p.enunciado, p.cita, p.oa, p.eje, p.indicador, p.clave, p.puntaje]
       );
       for (const o of await db.all('SELECT * FROM opciones WHERE pregunta_id = ?', [p.id])) {
         await db.run('INSERT INTO opciones (pregunta_id, letra, contenido) VALUES (?, ?, ?)', [nueva.id, o.letra, o.contenido]);
-      }
-      for (const r of await db.all('SELECT * FROM rubricas WHERE pregunta_id = ?', [p.id])) {
-        await db.run('INSERT INTO rubricas (pregunta_id, codigo, descripcion, ejemplos) VALUES (?, ?, ?, ?)', [nueva.id, r.codigo, r.descripcion, r.ejemplos]);
       }
     }
     return id;
@@ -160,15 +167,11 @@ router.post('/pruebas/:id/duplicar', async (req, res) => {
  * quien la definio.
  */
 router.get('/pruebas/:id/vista-previa', async (req, res) => {
-  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
 
-  const textos = await db.all(
-    'SELECT id, orden, titulo, autor, fuente, tipo_texto, contenido FROM textos WHERE prueba_id = ? ORDER BY orden, id',
-    [prueba.id]
-  );
   const preguntas = await db.all(
-    'SELECT id, texto_id, numero, tipo, enunciado, cita, eje, clave, puntaje FROM preguntas WHERE prueba_id = ? ORDER BY numero',
+    'SELECT id, numero, tipo, enunciado, cita, eje, clave, puntaje FROM preguntas WHERE prueba_id = ? ORDER BY numero',
     [prueba.id]
   );
   const opciones = await db.all(
@@ -179,7 +182,6 @@ router.get('/pruebas/:id/vista-previa', async (req, res) => {
 
   res.json({
     prueba,
-    textos,
     preguntas: preguntas.map((p) => ({
       ...p,
       opciones: opciones.filter((o) => o.pregunta_id === p.id && String(o.contenido || '').trim()),
@@ -187,78 +189,17 @@ router.get('/pruebas/:id/vista-previa', async (req, res) => {
   });
 });
 
-/* ------------------------------------------------------------------- textos */
-
-router.post('/pruebas/:id/textos', async (req, res) => {
-  const prueba = await db.get('SELECT id FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
-
-  const ultimo = await db.get('SELECT COALESCE(MAX(orden), 0) AS n FROM textos WHERE prueba_id = ?', [prueba.id]);
-  const { id } = await db.run(
-    'INSERT INTO textos (prueba_id, orden, titulo, autor, fuente, tipo_texto, contenido) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [
-      prueba.id,
-      entero(req.body?.orden, ultimo.n + 1),
-      texto(req.body?.titulo, 'Texto sin título'),
-      texto(req.body?.autor),
-      texto(req.body?.fuente),
-      texto(req.body?.tipo_texto, 'Narración'),
-      texto(req.body?.contenido),
-    ]
-  );
-  res.status(201).json({ id });
-});
-
-router.put('/textos/:id', async (req, res) => {
-  const t = await db.get('SELECT * FROM textos WHERE id = ?', [req.params.id]);
-  if (!t) return res.status(404).json({ error: 'Texto no encontrado.' });
-
-  await db.run(
-    'UPDATE textos SET orden = ?, titulo = ?, autor = ?, fuente = ?, tipo_texto = ?, contenido = ? WHERE id = ?',
-    [
-      entero(req.body?.orden, t.orden),
-      texto(req.body?.titulo, t.titulo),
-      texto(req.body?.autor, t.autor),
-      texto(req.body?.fuente, t.fuente),
-      texto(req.body?.tipo_texto, t.tipo_texto),
-      texto(req.body?.contenido, t.contenido),
-      t.id,
-    ]
-  );
-  // El tipo de texto viaja denormalizado a las preguntas porque el informe del
-  // DIA lo muestra pregunta a pregunta.
-  await db.run('UPDATE preguntas SET tipo_texto = ? WHERE texto_id = ?', [texto(req.body?.tipo_texto, t.tipo_texto), t.id]);
-  res.json({ ok: true });
-});
-
-router.delete('/textos/:id', async (req, res) => {
-  await db.run('DELETE FROM textos WHERE id = ?', [req.params.id]);
-  res.json({ ok: true });
-});
-
 /* ---------------------------------------------------------------- preguntas */
 
-async function guardarOpcionesYRubricas(preguntaId, cuerpo, tipo) {
-  if (tipo === 'alternativas') {
-    await db.run('DELETE FROM rubricas WHERE pregunta_id = ?', [preguntaId]);
-    const opciones = Array.isArray(cuerpo?.opciones) ? cuerpo.opciones : [];
-    await db.run('DELETE FROM opciones WHERE pregunta_id = ?', [preguntaId]);
-    for (const letra of LETRAS) {
-      const encontrada = opciones.find((o) => o.letra === letra);
-      await db.run('INSERT INTO opciones (pregunta_id, letra, contenido) VALUES (?, ?, ?)', [
-        preguntaId, letra, texto(encontrada?.contenido),
-      ]);
-    }
-  } else {
-    await db.run('DELETE FROM opciones WHERE pregunta_id = ?', [preguntaId]);
-    const rubricas = Array.isArray(cuerpo?.rubricas) ? cuerpo.rubricas : [];
-    await db.run('DELETE FROM rubricas WHERE pregunta_id = ?', [preguntaId]);
-    for (const codigo of [2, 1, 0]) {
-      const encontrada = rubricas.find((r) => Number(r.codigo) === codigo);
-      await db.run('INSERT INTO rubricas (pregunta_id, codigo, descripcion, ejemplos) VALUES (?, ?, ?, ?)', [
-        preguntaId, codigo, texto(encontrada?.descripcion), texto(encontrada?.ejemplos),
-      ]);
-    }
+/** Reescribe las cinco alternativas de una pregunta; las vacias no se muestran. */
+async function guardarOpciones(preguntaId, cuerpo) {
+  const opciones = Array.isArray(cuerpo?.opciones) ? cuerpo.opciones : [];
+  await db.run('DELETE FROM opciones WHERE pregunta_id = ?', [preguntaId]);
+  for (const letra of LETRAS) {
+    const encontrada = opciones.find((o) => o.letra === letra);
+    await db.run('INSERT INTO opciones (pregunta_id, letra, contenido) VALUES (?, ?, ?)', [
+      preguntaId, letra, texto(encontrada?.contenido),
+    ]);
   }
 }
 
@@ -266,26 +207,22 @@ router.post('/pruebas/:id/preguntas', async (req, res) => {
   const prueba = await db.get('SELECT id FROM pruebas WHERE id = ?', [req.params.id]);
   if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
 
-  const tipo = req.body?.tipo === 'desarrollo' ? 'desarrollo' : 'alternativas';
   const ultimo = await db.get('SELECT COALESCE(MAX(numero), 0) AS n FROM preguntas WHERE prueba_id = ?', [prueba.id]);
-  const textoAsociado = entero(req.body?.texto_id);
-  const tipoTexto = textoAsociado
-    ? (await db.get('SELECT tipo_texto FROM textos WHERE id = ?', [textoAsociado]))?.tipo_texto || ''
-    : texto(req.body?.tipo_texto);
 
   const { id } = await db.run(
-    'INSERT INTO preguntas (prueba_id, texto_id, numero, tipo, enunciado, cita, oa, eje, indicador, tipo_texto, clave, puntaje) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, cita, oa, eje, indicador, clave, puntaje) ' +
+      "VALUES (?, ?, 'alternativas', ?, ?, ?, ?, ?, ?, ?)",
     [
-      prueba.id, textoAsociado, entero(req.body?.numero, ultimo.n + 1), tipo,
+      prueba.id, entero(req.body?.numero, ultimo.n + 1),
       texto(req.body?.enunciado), texto(req.body?.cita), texto(req.body?.oa),
-      texto(req.body?.eje), texto(req.body?.indicador), tipoTexto,
-      tipo === 'alternativas' ? (LETRAS.includes(req.body?.clave) ? req.body.clave : null) : null,
-      entero(req.body?.puntaje, tipo === 'desarrollo' ? 2 : 1),
+      texto(req.body?.eje), texto(req.body?.indicador),
+      LETRAS.includes(req.body?.clave) ? req.body.clave : null,
+      entero(req.body?.puntaje, 1),
     ]
   );
+  const tipo = 'alternativas';
 
-  await guardarOpcionesYRubricas(id, req.body, tipo);
+  await guardarOpciones(id, req.body);
   res.status(201).json({ id });
 });
 
@@ -293,29 +230,21 @@ router.put('/preguntas/:id', async (req, res) => {
   const p = await db.get('SELECT * FROM preguntas WHERE id = ?', [req.params.id]);
   if (!p) return res.status(404).json({ error: 'Pregunta no encontrada.' });
 
-  const tipo = req.body?.tipo === 'desarrollo' ? 'desarrollo' : (req.body?.tipo === 'alternativas' ? 'alternativas' : p.tipo);
-  const textoAsociado = req.body?.texto_id === undefined ? p.texto_id : entero(req.body?.texto_id);
-  const tipoTexto = textoAsociado
-    ? (await db.get('SELECT tipo_texto FROM textos WHERE id = ?', [textoAsociado]))?.tipo_texto || ''
-    : texto(req.body?.tipo_texto, p.tipo_texto);
-
   await db.run(
-    'UPDATE preguntas SET texto_id = ?, numero = ?, tipo = ?, enunciado = ?, cita = ?, oa = ?, eje = ?, ' +
-      'indicador = ?, tipo_texto = ?, clave = ?, puntaje = ? WHERE id = ?',
+    'UPDATE preguntas SET numero = ?, enunciado = ?, cita = ?, oa = ?, eje = ?, ' +
+      'indicador = ?, clave = ?, puntaje = ? WHERE id = ?',
     [
-      textoAsociado, entero(req.body?.numero, p.numero), tipo,
+      entero(req.body?.numero, p.numero),
       texto(req.body?.enunciado, p.enunciado), texto(req.body?.cita, p.cita),
       texto(req.body?.oa, p.oa), texto(req.body?.eje, p.eje),
-      texto(req.body?.indicador, p.indicador), tipoTexto,
-      tipo === 'alternativas' ? (LETRAS.includes(req.body?.clave) ? req.body.clave : p.clave) : null,
+      texto(req.body?.indicador, p.indicador),
+      LETRAS.includes(req.body?.clave) ? req.body.clave : p.clave,
       entero(req.body?.puntaje, p.puntaje),
       p.id,
     ]
   );
 
-  if (req.body?.opciones || req.body?.rubricas || tipo !== p.tipo) {
-    await guardarOpcionesYRubricas(p.id, req.body, tipo);
-  }
+  if (req.body?.opciones) await guardarOpciones(p.id, req.body);
   res.json({ ok: true });
 });
 
@@ -326,13 +255,38 @@ router.delete('/preguntas/:id', async (req, res) => {
 
 /* ------------------------------------------------------------------ alumnos */
 
+/**
+ * Cursos que administra quien pide. Vacio significa todos: asi el
+ * administrador ve el liceo completo y una docente recien creada no queda sin
+ * nada mientras no se le asignen los suyos.
+ */
+function cursosDe(req) {
+  return String(req.profesor.cursos || '').split(',').map((c) => c.trim()).filter(Boolean);
+}
+
 router.get('/alumnos', async (req, res) => {
   const curso = texto(req.query?.curso).trim();
-  const filas = curso
+  const mios = cursosDe(req);
+
+  let filas = curso
     ? await db.all('SELECT * FROM alumnos WHERE curso = ? ORDER BY nombre', [curso])
     : await db.all('SELECT * FROM alumnos ORDER BY curso, nombre');
-  const cursos = await db.all("SELECT curso, COUNT(*) AS n FROM alumnos WHERE curso <> '' GROUP BY curso ORDER BY curso");
-  res.json({ alumnos: filas, cursos });
+
+  if (mios.length) filas = filas.filter((a) => mios.includes(a.curso));
+
+  const cursos = [];
+  const cuenta = new Map();
+  for (const a of filas) if (a.curso) cuenta.set(a.curso, (cuenta.get(a.curso) || 0) + 1);
+
+  // Con filtro por curso los totales saldrian de un solo curso; se piden aparte.
+  if (curso) {
+    const todos = await db.all("SELECT curso, COUNT(*) AS n FROM alumnos WHERE curso <> '' GROUP BY curso ORDER BY curso");
+    for (const c of todos) if (!mios.length || mios.includes(c.curso)) cursos.push(c);
+  } else {
+    for (const [c, n] of [...cuenta.entries()].sort()) cursos.push({ curso: c, n });
+  }
+
+  res.json({ alumnos: filas, cursos, mis_cursos: mios });
 });
 
 async function codigoUnico() {

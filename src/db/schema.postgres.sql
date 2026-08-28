@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS profesores (
   email         TEXT    NOT NULL UNIQUE,
   password_hash TEXT    NOT NULL,
   rol           TEXT    NOT NULL DEFAULT 'profesor',
+  cursos        TEXT    NOT NULL DEFAULT '',
   activo        INTEGER NOT NULL DEFAULT 1,
   creado_en     TEXT    NOT NULL DEFAULT ahora_utc()
 );
@@ -52,22 +53,9 @@ CREATE TABLE IF NOT EXISTS pruebas (
   creado_en                TEXT    NOT NULL DEFAULT ahora_utc()
 );
 
-CREATE TABLE IF NOT EXISTS textos (
-  id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  prueba_id  INTEGER NOT NULL REFERENCES pruebas(id) ON DELETE CASCADE,
-  orden      INTEGER NOT NULL DEFAULT 1,
-  titulo     TEXT    NOT NULL DEFAULT '',
-  autor      TEXT    NOT NULL DEFAULT '',
-  fuente     TEXT    NOT NULL DEFAULT '',
-  tipo_texto TEXT    NOT NULL DEFAULT 'Narración',
-  contenido  TEXT    NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS ix_textos_prueba ON textos(prueba_id);
-
 CREATE TABLE IF NOT EXISTS preguntas (
   id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   prueba_id  INTEGER NOT NULL REFERENCES pruebas(id) ON DELETE CASCADE,
-  texto_id   INTEGER REFERENCES textos(id) ON DELETE SET NULL,
   numero     INTEGER NOT NULL,
   tipo       TEXT    NOT NULL DEFAULT 'alternativas',
   enunciado  TEXT    NOT NULL DEFAULT '',
@@ -75,7 +63,6 @@ CREATE TABLE IF NOT EXISTS preguntas (
   oa         TEXT    NOT NULL DEFAULT '',
   eje        TEXT    NOT NULL DEFAULT '',
   indicador  TEXT    NOT NULL DEFAULT '',
-  tipo_texto TEXT    NOT NULL DEFAULT '',
   clave      TEXT,
   puntaje    INTEGER NOT NULL DEFAULT 1,
   UNIQUE(prueba_id, numero)

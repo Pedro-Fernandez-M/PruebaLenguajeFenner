@@ -91,15 +91,17 @@ async function vistaPruebas(nodo) {
     '<div id="caja-nueva"></div>' +
     (pruebas.length
       ? '<div class="tarjeta tabla-scroll"><table><thead><tr>' +
-          '<th>Prueba</th><th>Estado</th><th>Contenido</th><th>Rendida</th><th></th>' +
+          '<th>Prueba</th><th>Estado</th><th>Preguntas</th><th>Rendida</th><th></th>' +
         '</tr></thead><tbody>' +
         pruebas.map((p) =>
           '<tr>' +
             '<td><strong>' + esc(p.titulo) + '</strong><br><span class="silencio">' +
               esc(p.asignatura) + ' · ' + esc(p.nivel) +
-              (p.cursos ? ' · cursos: ' + esc(p.cursos) : ' · todos los cursos') + '</span></td>' +
+              (p.cursos ? ' · ' + esc(p.cursos) : ' · todos los cursos') +
+              (docente.rol === 'admin' && p.docente ? ' · ' + esc(p.docente) : '') + '</span></td>' +
             '<td>' + (ETIQUETA_ESTADO[p.estado] || p.estado) + '</td>' +
-            '<td class="silencio">' + plural(p.total_textos, 'texto') + '<br>' + plural(p.total_preguntas, 'pregunta') + '</td>' +
+            '<td class="silencio">' + plural(p.total_preguntas, 'pregunta') +
+              (p.duracion_min ? '<br>' + p.duracion_min + ' min' : '') + '</td>' +
             '<td class="silencio">' + plural(p.total_enviados, 'enviada') +
               (p.total_en_curso ? '<br><span class="etiqueta ambar">' + p.total_en_curso + ' rindiendo</span>' : '') + '</td>' +
             '<td><div class="fila fin">' +
@@ -113,7 +115,8 @@ async function vistaPruebas(nodo) {
           '</tr>').join('') +
         '</tbody></table></div>'
       : '<div class="tarjeta"><p>Aún no hay pruebas creadas.</p>' +
-        '<p class="silencio">Crea una prueba, agrega los textos y luego las preguntas con su OA, eje de habilidad e indicador.</p></div>');
+        '<p class="silencio">Crea una prueba y escribe sus preguntas: enunciado, alternativas, ' +
+        'la correcta y la habilidad que mide. Los textos se entregan impresos.</p></div>');
 
   $('#btn-nueva').addEventListener('click', () => formularioNuevaPrueba($('#caja-nueva')));
 
@@ -123,7 +126,7 @@ async function vistaPruebas(nodo) {
   }));
 
   nodo.querySelectorAll('[data-borrar]').forEach((b) => b.addEventListener('click', async () => {
-    if (!confirm('Se eliminará la prueba con todos sus textos, preguntas y resultados. ¿Continuar?')) return;
+    if (!confirm('Se eliminará la prueba con todas sus preguntas y resultados. ¿Continuar?')) return;
     await api('/api/admin/pruebas/' + b.dataset.borrar, { metodo: 'DELETE' });
     enrutar();
   }));
@@ -288,28 +291,24 @@ async function vistaCodigos(nodo, curso) {
 /* ----------------------------------------------------------- vista: cuenta */
 
 async function vistaCuenta(nodo) {
-  const { profesores } = await api('/api/auth/profesores');
+  const { profesores, cursos_disponibles } = await api('/api/auth/profesores');
+  const esAdmin = docente.rol === 'admin';
 
   nodo.innerHTML =
     '<h1>Mi cuenta</h1><div id="aviso" class="aviso"></div>' +
-    '<div class="tarjeta"><h2>Cambiar contraseña</h2>' +
+    '<div class="tarjeta"><h2>Cambiar mi contraseña</h2>' +
       '<div class="rejilla dos">' +
         '<div class="campo"><label>Contraseña actual</label><input id="c-actual" type="password"></div>' +
         '<div class="campo"><label>Nueva contraseña (mínimo 8 caracteres)</label><input id="c-nueva" type="password"></div>' +
       '</div><div class="fila fin"><button id="c-guardar">Guardar</button></div></div>' +
 
-    '<div class="tarjeta"><h2>Docentes con acceso</h2>' +
-      '<table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th></tr></thead><tbody>' +
-      profesores.map((p) => '<tr><td>' + esc(p.nombre) + '</td><td>' + esc(p.email) + '</td><td>' + esc(p.rol) + '</td></tr>').join('') +
-      '</tbody></table>' +
-      (docente.rol === 'admin'
-        ? '<h3 style="margin-top:1.2rem">Agregar docente</h3><div class="rejilla dos">' +
-            '<div class="campo"><label>Nombre</label><input id="d-nombre"></div>' +
-            '<div class="campo"><label>Correo</label><input id="d-email" type="email"></div>' +
-            '<div class="campo"><label>Contraseña inicial</label><input id="d-password" type="text"></div>' +
-            '<div class="campo"><label>Rol</label><select id="d-rol"><option value="profesor">Profesor</option><option value="admin">Administrador</option></select></div>' +
-          '</div><div class="fila fin"><button id="d-crear">Crear docente</button></div>'
-        : '<p class="silencio">Solo un administrador puede agregar docentes.</p>') +
+    '<div class="tarjeta"><h2>Docentes</h2>' +
+      (esAdmin
+        ? '<p class="silencio">Cada docente ve solo sus propias pruebas. Los cursos marcados son los ' +
+          'estudiantes que puede evaluar; sin ninguno marcado, ve todos.</p>'
+        : '<p class="silencio">Tus pruebas y tus cursos son solo tuyos: las demás docentes no los ven.</p>') +
+      profesores.map((p) => fichaDocente(p, cursos_disponibles, esAdmin)).join('') +
+      (esAdmin ? formularioDocente(cursos_disponibles) : '') +
     '</div>' +
     '<p><a href="#pruebas">Volver a las pruebas</a></p>';
 
@@ -325,13 +324,32 @@ async function vistaCuenta(nodo) {
     }
   });
 
-  const crear = $('#d-crear');
-  if (crear) crear.addEventListener('click', async () => {
+  if (!esAdmin) return;
+
+  $$('[data-guardar-cursos]').forEach((boton) => boton.addEventListener('click', async () => {
+    const ficha = boton.closest('[data-docente]');
+    const cursos = $$('[data-curso]', ficha).filter((c) => c.checked).map((c) => c.dataset.curso).join(', ');
+    await api('/api/auth/profesores/' + boton.dataset.guardarCursos + '/cursos', { metodo: 'PUT', cuerpo: { cursos } });
+    mostrarAviso($('#aviso'), 'Cursos actualizados.', 'ok');
+    enrutar();
+  }));
+
+  $$('[data-nueva-clave]').forEach((boton) => boton.addEventListener('click', async () => {
+    const ficha = boton.closest('[data-docente]');
+    const clave = $('[data-clave]', ficha).value.trim();
+    if (clave.length < 8) return mostrarAviso($('#aviso'), 'La contraseña debe tener al menos 8 caracteres.');
+    await api('/api/auth/profesores/' + boton.dataset.nuevaClave + '/password', { metodo: 'PUT', cuerpo: { password: clave } });
+    mostrarAviso($('#aviso'), 'Contraseña restablecida. Entrégasela a la docente.', 'ok');
+    $('[data-clave]', ficha).value = '';
+  }));
+
+  $('#d-crear').addEventListener('click', async () => {
     try {
       await api('/api/auth/profesores', {
         cuerpo: {
           nombre: $('#d-nombre').value, email: $('#d-email').value,
           password: $('#d-password').value, rol: $('#d-rol').value,
+          cursos: $$('[data-curso-nuevo]').filter((c) => c.checked).map((c) => c.dataset.cursoNuevo).join(', '),
         },
       });
       enrutar();
@@ -339,6 +357,49 @@ async function vistaCuenta(nodo) {
       mostrarAviso($('#aviso'), error.message);
     }
   });
+}
+
+function fichaDocente(p, cursosDisponibles, esAdmin) {
+  const suyos = String(p.cursos || '').split(',').map((c) => c.trim()).filter(Boolean);
+
+  return '<details class="tarjeta" style="margin:.6rem 0" data-docente="' + p.id + '">' +
+    '<summary><strong>' + esc(p.nombre) + '</strong> ' +
+      '<span class="silencio">' + esc(p.email) + '</span> ' +
+      (p.rol === 'admin' ? '<span class="etiqueta">administrador</span> ' : '') +
+      '<span class="etiqueta gris">' + (suyos.length ? suyos.join(', ') : 'todos los cursos') + '</span>' +
+    '</summary>' +
+    (esAdmin
+      ? '<div style="margin-top:.8rem"><label>Cursos que administra</label>' +
+          '<div class="fila" style="gap:.4rem">' +
+            cursosDisponibles.map((c) =>
+              '<label class="alternativa" style="margin:0"><input type="checkbox" data-curso="' + esc(c) + '"' +
+              (suyos.includes(c) ? ' checked' : '') + '><span>' + esc(c) + '</span></label>').join('') +
+          '</div>' +
+          '<p class="silencio">Sin ninguno marcado ve todos los cursos.</p>' +
+          '<div class="fila fin"><button class="chico" data-guardar-cursos="' + p.id + '">Guardar cursos</button></div>' +
+          '<label style="margin-top:.8rem">Restablecer su contraseña</label>' +
+          '<div class="fila"><input data-clave placeholder="Nueva contraseña" style="max-width:280px">' +
+            '<button class="neutro chico" data-nueva-clave="' + p.id + '">Restablecer</button></div>' +
+        '</div>'
+      : '') +
+  '</details>';
+}
+
+function formularioDocente(cursosDisponibles) {
+  return '<h3 style="margin-top:1.4rem">Agregar docente</h3>' +
+    '<div class="rejilla dos">' +
+      '<div class="campo"><label>Nombre</label><input id="d-nombre"></div>' +
+      '<div class="campo"><label>Correo</label><input id="d-email" type="email"></div>' +
+      '<div class="campo"><label>Contraseña inicial</label><input id="d-password" type="text"></div>' +
+      '<div class="campo"><label>Rol</label><select id="d-rol">' +
+        '<option value="profesor">Profesora</option><option value="admin">Administrador</option></select></div>' +
+    '</div>' +
+    '<div class="campo"><label>Cursos que administrará</label><div class="fila" style="gap:.4rem">' +
+      cursosDisponibles.map((c) =>
+        '<label class="alternativa" style="margin:0"><input type="checkbox" data-curso-nuevo="' + esc(c) + '">' +
+        '<span>' + esc(c) + '</span></label>').join('') +
+    '</div></div>' +
+    '<div class="fila fin"><button id="d-crear">Crear docente</button></div>';
 }
 
 // prueba.js necesita repintar la vista actual; se expone así para no crear una

@@ -131,9 +131,9 @@ router.get('/pruebas/:id/informe.csv', async (req, res) => {
 
   lineas.push([]);
   lineas.push('Clave de respuestas');
-  lineas.push(['Pregunta', 'OA', 'Tipo de texto', 'Eje de habilidad', 'Indicador', 'Clave', '% logro curso'].map(csvEscapar).join(';'));
+  lineas.push(['Pregunta', 'Criterio', 'Clave', '% logro curso'].map(csvEscapar).join(';'));
   for (const f of informe.preguntas) {
-    lineas.push([f.numero, f.oa, f.tipo_texto, f.eje, f.indicador, f.clave || 'Desarrollo', f.logro].map(csvEscapar).join(';'));
+    lineas.push([f.numero, f.eje, f.clave || '', f.logro].map(csvEscapar).join(';'));
   }
 
   lineas.push([]);

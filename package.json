@@ -12,7 +12,8 @@
     "dev": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings --watch server.js",
     "seed": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/seed.mjs",
     "reset": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/seed.mjs --reset",
-    "probar-postgres": "node --env-file-if-exists=.env scripts/probar-postgres.mjs"
+    "probar-postgres": "node --env-file-if-exists=.env scripts/probar-postgres.mjs",
+    "crear-docentes": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/crear-docentes.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

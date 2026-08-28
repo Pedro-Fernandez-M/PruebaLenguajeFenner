@@ -4,34 +4,15 @@
 //  - niveles de logro I / II / III segun umbrales configurables por prueba
 import * as db from '../db/index.js';
 
+// Las tres habilidades de comprension lectora. Cada pregunta mide exactamente
+// una: son las que arman el desglose del informe.
 export const EJES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
-
-export const TIPOS_TEXTO = [
-  'Narración',
-  'Poema',
-  'Texto dramático',
-  'Texto de los medios de comunicación',
-  'Texto de los medios de comunicación con finalidad argumentativa',
-  'Texto informativo',
-  'Otro',
-];
 
 // Las pruebas de comprension lectora usan 4 o 5 alternativas segun el caso.
 // Se admiten hasta cinco: las que queden vacias no se muestran al estudiante
 // ni aparecen en el informe, asi que ambos formatos conviven sin configurar nada.
 export const LETRAS = ['A', 'B', 'C', 'D', 'E'];
 
-/**
- * Criterios que evalua una pregunta. Se guardan separados por coma porque una
- * misma pregunta puede medir mas de uno, y entonces cuenta en todos: su puntaje
- * suma al logro de cada criterio que declara.
- */
-export function criteriosDe(pregunta) {
-  return String(pregunta?.eje || '')
-    .split(',')
-    .map((c) => c.trim())
-    .filter(Boolean);
-}
 
 // La ficha tecnica fija el codigo 2 como respuesta correcta, 1 como parcial y 0
 // como incorrecta (incluida la respuesta en blanco).
@@ -180,7 +161,6 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
 
   // 2. Logro por eje de habilidad y por tipo de texto
   const acumuladoEje = new Map();
-  const acumuladoTipo = new Map();
   const sumar = (mapa, clave, obtenido, maximo) => {
     if (!clave) return;
     const actual = mapa.get(clave) || { obtenido: 0, maximo: 0 };
@@ -204,7 +184,6 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       numero: pregunta.numero,
       tipo: pregunta.tipo,
       oa: pregunta.oa,
-      tipo_texto: pregunta.tipo_texto,
       eje: pregunta.eje,
       indicador: pregunta.indicador,
       enunciado: pregunta.enunciado,
@@ -264,10 +243,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     }
 
     fila.logro = pct(obtenidoPregunta, maximoPregunta);
-    for (const criterio of criteriosDe(pregunta)) {
-      sumar(acumuladoEje, criterio, obtenidoPregunta, maximoPregunta);
-    }
-    sumar(acumuladoTipo, pregunta.tipo_texto, obtenidoPregunta, maximoPregunta);
+    sumar(acumuladoEje, pregunta.eje, obtenidoPregunta, maximoPregunta);
     detallePreguntas.push(fila);
   }
 
@@ -279,15 +255,9 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     return {
       eje,
       porcentaje: pct(a.obtenido, a.maximo),
-      preguntas: preguntas.filter((p) => criteriosDe(p).includes(eje)).length,
+      preguntas: preguntas.filter((p) => p.eje === eje).length,
     };
   });
-
-  const porTipoTexto = [...acumuladoTipo.entries()].map(([tipo, a]) => ({
-    tipo_texto: tipo,
-    porcentaje: pct(a.obtenido, a.maximo),
-    preguntas: preguntas.filter((p) => p.tipo_texto === tipo).length,
-  }));
 
   // 4. Resultados por estudiante
   const porAlumno = intentos.map((i) => ({
@@ -328,7 +298,6 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       : 0,
     distribucion_niveles: distribucionNiveles,
     por_eje: porEje,
-    por_tipo_texto: porTipoTexto,
     preguntas: detallePreguntas,
     alumnos: porAlumno,
   };
@@ -351,18 +320,17 @@ export async function informeDeAlumno(intentoId) {
   const detalle = preguntas.map((p) => {
     const r = mapa.get(p.id) || null;
     const puntaje = r && r.puntaje != null ? r.puntaje : 0;
-    for (const criterio of criteriosDe(p)) {
-      const a = acumuladoEje.get(criterio) || { obtenido: 0, maximo: 0 };
+    if (p.eje) {
+      const a = acumuladoEje.get(p.eje) || { obtenido: 0, maximo: 0 };
       a.obtenido += puntaje;
       a.maximo += p.puntaje;
-      acumuladoEje.set(criterio, a);
+      acumuladoEje.set(p.eje, a);
     }
     return {
       numero: p.numero,
       tipo: p.tipo,
       eje: p.eje,
       oa: p.oa,
-      tipo_texto: p.tipo_texto,
       indicador: p.indicador,
       enunciado: p.enunciado,
       clave: p.clave,

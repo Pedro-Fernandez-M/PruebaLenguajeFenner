@@ -101,12 +101,8 @@ router.get('/intentos/:id', exigirAlumno, async (req, res) => {
     return res.status(409).json({ error: 'Ya enviaste esta prueba.', intento_id: intento.id });
   }
 
-  const textos = await db.all(
-    'SELECT id, orden, titulo, autor, fuente, tipo_texto, contenido FROM textos WHERE prueba_id = ? ORDER BY orden, id',
-    [prueba.id]
-  );
   const preguntas = await db.all(
-    'SELECT id, texto_id, numero, tipo, enunciado, cita, puntaje FROM preguntas WHERE prueba_id = ? ORDER BY numero',
+    'SELECT id, numero, tipo, enunciado, cita, puntaje FROM preguntas WHERE prueba_id = ? ORDER BY numero',
     [prueba.id]
   );
   const opciones = await db.all(
@@ -125,7 +121,6 @@ router.get('/intentos/:id', exigirAlumno, async (req, res) => {
       id: prueba.id, titulo: prueba.titulo, asignatura: prueba.asignatura,
       nivel: prueba.nivel, instrucciones: prueba.instrucciones, duracion_min: prueba.duracion_min,
     },
-    textos,
     // Solo viajan las alternativas con contenido: asi una prueba de cuatro
     // opciones no muestra una E vacia.
     preguntas: preguntas.map((p) => ({

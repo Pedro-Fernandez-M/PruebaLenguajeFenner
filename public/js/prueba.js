@@ -31,15 +31,6 @@ function restaurarFoco() {
 }
 
 const LETRAS = ['A', 'B', 'C', 'D', 'E'];
-const TIPOS_TEXTO = [
-  'Narración',
-  'Poema',
-  'Texto dramático',
-  'Texto de los medios de comunicación',
-  'Texto de los medios de comunicación con finalidad argumentativa',
-  'Texto informativo',
-  'Otro',
-];
 
 function opciones(lista, seleccionado) {
   return lista.map((v) => '<option value="' + esc(v) + '"' + (v === seleccionado ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
@@ -67,17 +58,15 @@ export async function vistaEditor(nodo, id) {
     api('/api/admin/pruebas/' + id),
     api('/api/admin/alumnos'),
   ]);
-  const { prueba, textos, preguntas } = datos;
+  const { prueba, preguntas } = datos;
 
   nodo.innerHTML = cabecera(prueba, 'editor') +
     '<div id="aviso" class="aviso"></div>' +
     seccionAjustes(prueba, nomina.cursos) +
-    seccionTextos(textos) +
-    seccionPreguntas(preguntas, textos, prueba);
+    seccionPreguntas(preguntas, prueba);
 
   conectarAjustes(prueba);
-  conectarTextos(prueba, textos);
-  conectarPreguntas(prueba, textos, preguntas);
+  conectarPreguntas(prueba, preguntas);
   restaurarFoco();
 }
 
@@ -182,106 +171,33 @@ function conectarAjustes(prueba) {
   });
 }
 
-/* -------------------------------------------------------------------- textos */
-
-function seccionTextos(textos) {
-  return '<div class="tarjeta"><div class="fila"><h2 class="crece">Textos (' + textos.length + ')</h2>' +
-      '<button class="secundario" id="t-nuevo">Agregar texto</button></div>' +
-    '<p class="silencio">Cada texto es el estímulo de un grupo de preguntas. El tipo de texto se copia a las preguntas asociadas para el informe.</p>' +
-    textos.map((t) =>
-      '<details class="tarjeta" style="margin:.6rem 0" data-texto="' + t.id + '">' +
-        '<summary><strong>' + t.orden + '. ' + esc(t.titulo) + '</strong> ' +
-          '<span class="etiqueta gris">' + esc(t.tipo_texto) + '</span></summary>' +
-        '<div class="rejilla dos" style="margin-top:.8rem">' +
-          '<div class="campo"><label>Título</label><input data-campo="titulo" value="' + esc(t.titulo) + '"></div>' +
-          '<div class="campo"><label>Autor</label><input data-campo="autor" value="' + esc(t.autor) + '"></div>' +
-          '<div class="campo"><label>Tipo de texto</label><select data-campo="tipo_texto">' + opciones(TIPOS_TEXTO, t.tipo_texto) + '</select></div>' +
-          '<div class="campo"><label>Orden</label><input data-campo="orden" type="number" min="1" value="' + t.orden + '"></div>' +
-        '</div>' +
-        '<div class="campo"><label>Fuente</label><input data-campo="fuente" value="' + esc(t.fuente) + '"></div>' +
-        '<div class="campo"><label>Contenido del texto</label>' +
-          '<textarea data-campo="contenido" rows="14">' + esc(t.contenido) + '</textarea></div>' +
-        '<div class="fila fin"><button class="peligro chico" data-borrar-texto="' + t.id + '">Eliminar texto</button>' +
-          '<button class="chico" data-guardar-texto="' + t.id + '">Guardar texto</button></div>' +
-      '</details>').join('') +
-    '</div>';
-}
-
-function conectarTextos(prueba, textos) {
-  $('#t-nuevo').addEventListener('click', async () => {
-    const { id } = await api('/api/admin/pruebas/' + prueba.id + '/textos', {
-      cuerpo: { titulo: 'Texto ' + (textos.length + 1), orden: textos.length + 1 },
-    });
-    pedirFoco('texto', id, true);
-    recargar();
-  });
-
-  document.querySelectorAll('[data-guardar-texto]').forEach((boton) => {
-    boton.addEventListener('click', async () => {
-      const caja = boton.closest('[data-texto]');
-      const cuerpo = {};
-      caja.querySelectorAll('[data-campo]').forEach((c) => { cuerpo[c.dataset.campo] = c.value; });
-      await api('/api/admin/textos/' + boton.dataset.guardarTexto, { metodo: 'PUT', cuerpo });
-      mostrarAviso($('#aviso'), 'Texto guardado.', 'ok');
-      recargar();
-    });
-  });
-
-  document.querySelectorAll('[data-borrar-texto]').forEach((boton) => {
-    boton.addEventListener('click', async () => {
-      if (!confirm('Se eliminará el texto. Las preguntas asociadas quedarán sin texto. ¿Continuar?')) return;
-      await api('/api/admin/textos/' + boton.dataset.borrarTexto, { metodo: 'DELETE' });
-      recargar();
-    });
-  });
-}
-
 /* ----------------------------------------------------------------- preguntas */
 
-/**
- * Criterios de la pregunta. Se marcan de una lista y admite mas de uno: una
- * pregunta puede medir dos cosas a la vez, y entonces cuenta en ambos criterios
- * del informe. La lista sale de los criterios ya usados en la prueba mas los
- * habituales, y se puede ampliar sin salir de aqui.
- */
-function bloqueCriterios(p, criterios) {
-  const marcados = String(p.eje || '').split(',').map((c) => c.trim()).filter(Boolean);
-  const lista = [...new Set([...criterios, ...marcados])];
+const HABILIDADES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
 
-  return '<div class="campo" data-criterios><label>Criterio que evalúa esta pregunta</label>' +
+/**
+ * Habilidad que mide la pregunta. Son tres y cada pregunta mide exactamente
+ * una, asi que van como opciones excluyentes y no como texto libre: escribirla
+ * a mano permitiria que una tilde distinta creara una habilidad aparte en el
+ * informe sin que nada lo advirtiera.
+ */
+function bloqueCriterios(p) {
+  return '<div class="campo" data-criterios><label>Habilidad que mide esta pregunta</label>' +
     '<div class="fila" style="gap:.4rem">' +
-      lista.map((c) =>
+      HABILIDADES.map((h) =>
         '<label class="alternativa" style="margin:0">' +
-          '<input type="checkbox" data-criterio="' + esc(c) + '"' +
-          (marcados.includes(c) ? ' checked' : '') + '>' +
-          '<span>' + esc(c) + '</span>' +
+          '<input type="radio" name="hab-' + p.id + '" data-criterio="' + esc(h) + '"' +
+          (p.eje === h ? ' checked' : '') + '>' +
+          '<span>' + esc(h) + '</span>' +
         '</label>').join('') +
     '</div>' +
-    '<div class="fila" style="margin-top:.4rem">' +
-      '<input data-criterio-nuevo placeholder="Agregar otro criterio…" style="max-width:280px">' +
-      '<button type="button" class="neutro chico" data-agregar-criterio>Agregar</button>' +
-      '<span class="silencio" data-resumen-criterios></span>' +
-    '</div></div>';
+    '<p class="silencio" data-resumen-criterios></p></div>';
 }
 
-const CRITERIOS_SUGERIDOS = [
-  'Localizar',
-  'Interpretar y relacionar',
-  'Reflexionar',
-  'Extracción de información',
-  'Construcción de significado',
-  'Incremento de vocabulario',
-];
-
-function seccionPreguntas(preguntas, textos, prueba) {
+function seccionPreguntas(preguntas, prueba) {
   // (criterios se calcula abajo y se pasa a cada tarjeta)
   const sinClasificar = preguntas.filter((p) => !p.eje).length;
   const sinClave = preguntas.filter((p) => p.tipo === 'alternativas' && !p.clave).length;
-
-  // Los criterios ya usados en la prueba van primero: son los de esta evaluacion.
-  const usados = [...new Set(preguntas.flatMap((p) =>
-    String(p.eje || '').split(',').map((c) => c.trim()).filter(Boolean)))];
-  const criterios = [...new Set([...usados, ...CRITERIOS_SUGERIDOS])];
 
   return '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
       '<button id="q-nueva">Agregar pregunta</button></div>' +
@@ -291,12 +207,12 @@ function seccionPreguntas(preguntas, textos, prueba) {
           (sinClasificar ? sinClasificar + ' pregunta(s) sin criterio: no aparecerán en el desglose del informe.' : '') +
         '</div>'
       : '') +
-    preguntas.map((p) => tarjetaPregunta(p, textos, criterios)).join('') +
+    preguntas.map(tarjetaPregunta).join('') +
     (preguntas.length ? '' : '<p class="silencio">Todavía no hay preguntas.</p>') +
     '</div>';
 }
 
-function tarjetaPregunta(p, textos, criterios) {
+function tarjetaPregunta(p) {
   const esAlternativas = p.tipo === 'alternativas';
   const resumen = (p.enunciado || '(sin enunciado)').slice(0, 90);
 
@@ -323,13 +239,6 @@ function tarjetaPregunta(p, textos, criterios) {
 
     '<div class="rejilla dos" style="margin-top:.8rem">' +
       '<div class="campo"><label>N° de pregunta</label><input data-campo="numero" type="number" min="1" value="' + p.numero + '"></div>' +
-      // La plataforma evalua solo preguntas de alternativas: el tipo va fijo y
-      // no se ofrece como opcion.
-      '<input type="hidden" data-campo="tipo" value="alternativas">' +
-      '<div class="campo"><label>Texto asociado</label><select data-campo="texto_id">' +
-        '<option value="">— sin texto —</option>' +
-        textos.map((t) => '<option value="' + t.id + '"' + (t.id === p.texto_id ? ' selected' : '') + '>' + esc(t.titulo) + '</option>').join('') +
-      '</select></div>' +
       '<div class="campo"><label>Puntaje</label><input data-campo="puntaje" type="number" min="1" value="' + p.puntaje + '"></div>' +
     '</div>' +
 
@@ -341,7 +250,7 @@ function tarjetaPregunta(p, textos, criterios) {
     // informe. Se escribe libre porque cada prueba usa su propio conjunto
     // (los ejes del DIA en unas, "Extraccion de informacion" en otras), con
     // sugerencias de los ya usados para no tipear dos veces lo mismo.
-    bloqueCriterios(p, criterios) +
+    bloqueCriterios(p) +
 
     '<details style="margin-bottom:.8rem"><summary class="silencio">Datos adicionales (opcionales)</summary>' +
       '<div class="rejilla dos" style="margin-top:.6rem">' +
@@ -350,7 +259,6 @@ function tarjetaPregunta(p, textos, criterios) {
           '<input data-campo="indicador" value="' + esc(p.indicador) + '" ' +
           'placeholder="Descripción larga de lo que mide"></div>' +
       '</div>' +
-      '<p class="silencio">El tipo de texto no se define aquí: se toma del texto asociado.</p>' +
     '</details>' +
 
     '<div data-cuerpo>' + cuerpoAlternativas + '</div>' +
@@ -364,20 +272,17 @@ function tarjetaPregunta(p, textos, criterios) {
 
 /** Aviso bajo las casillas: cuantos criterios lleva la pregunta. */
 function resumir(caja) {
-  const marcados = [...caja.querySelectorAll('[data-criterio]')].filter((c) => c.checked).length;
   const nota = caja.querySelector('[data-resumen-criterios]');
   if (!nota) return;
-  nota.textContent = marcados === 0
-    ? 'Sin criterio: no aparecerá en el desglose del informe.'
-    : (marcados === 1 ? '' : marcados + ' criterios: contará en los ' + marcados + '.');
+  const marcada = caja.querySelector('[data-criterio]:checked');
+  nota.textContent = marcada ? '' : 'Sin habilidad: no aparecerá en el desglose del informe.';
 }
 
 function leerPregunta(caja) {
   const cuerpo = {};
   caja.querySelectorAll('[data-campo]').forEach((c) => { cuerpo[c.dataset.campo] = c.value; });
-  cuerpo.eje = [...caja.querySelectorAll('[data-criterio]')]
-    .filter((c) => c.checked).map((c) => c.dataset.criterio).join(', ');
-  cuerpo.texto_id = cuerpo.texto_id ? Number(cuerpo.texto_id) : null;
+  const marcada = caja.querySelector('[data-criterio]:checked');
+  cuerpo.eje = marcada ? marcada.dataset.criterio : '';
 
   if (cuerpo.tipo === 'alternativas') {
     cuerpo.opciones = [...caja.querySelectorAll('[data-opcion]')].map((c) => ({ letra: c.dataset.opcion, contenido: c.value }));
@@ -395,14 +300,13 @@ function leerPregunta(caja) {
 
 /**
  * Crea una pregunta y deja el editor listo para escribirla.
- * Si se viene de "guardar y agregar otra", hereda texto asociado, OA, eje e
- * indicador de la anterior: en una prueba real varias preguntas seguidas
- * comparten esa clasificacion, y volver a elegirla cada vez es puro roce.
+ * Si se viene de "guardar y agregar otra", hereda OA, criterio e indicador de la
+ * anterior: en una prueba real varias preguntas seguidas comparten esa
+ * clasificacion, y volver a elegirla cada vez es puro roce.
  */
 async function agregarPregunta(prueba, numero, anterior = null) {
-  const cuerpo = { tipo: 'alternativas', numero, enunciado: '' };
+  const cuerpo = { numero, enunciado: '' };
   if (anterior) {
-    cuerpo.texto_id = anterior.texto_id;
     cuerpo.oa = anterior.oa;
     cuerpo.eje = anterior.eje;
     cuerpo.indicador = anterior.indicador;
@@ -412,36 +316,8 @@ async function agregarPregunta(prueba, numero, anterior = null) {
   recargar();
 }
 
-function conectarPreguntas(prueba, textos, preguntas) {
+function conectarPreguntas(prueba, preguntas) {
   $('#q-nueva').addEventListener('click', () => agregarPregunta(prueba, preguntas.length + 1));
-
-  // Agregar un criterio que no estaba en la lista, sin salir de la pregunta.
-  document.querySelectorAll('[data-agregar-criterio]').forEach((boton) => {
-    const caja = boton.closest('[data-criterios]');
-    const entrada = caja.querySelector('[data-criterio-nuevo]');
-
-    const agregar = () => {
-      const nombre = entrada.value.trim();
-      if (!nombre) return;
-      const yaEsta = [...caja.querySelectorAll('[data-criterio]')]
-        .find((c) => c.dataset.criterio.toLowerCase() === nombre.toLowerCase());
-      if (yaEsta) { yaEsta.checked = true; entrada.value = ''; return resumir(caja); }
-
-      const etiqueta = document.createElement('label');
-      etiqueta.className = 'alternativa';
-      etiqueta.style.margin = '0';
-      etiqueta.innerHTML = '<input type="checkbox" checked data-criterio="' + esc(nombre) + '"><span>' + esc(nombre) + '</span>';
-      caja.querySelector('.fila').appendChild(etiqueta);
-      etiqueta.querySelector('input').addEventListener('change', () => resumir(caja));
-      entrada.value = '';
-      resumir(caja);
-    };
-
-    boton.addEventListener('click', agregar);
-    entrada.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); agregar(); }
-    });
-  });
 
   document.querySelectorAll('[data-criterios]').forEach((caja) => {
     caja.querySelectorAll('[data-criterio]').forEach((c) => c.addEventListener('change', () => resumir(caja)));
@@ -653,14 +529,6 @@ function seccionEjes(r) {
         '<td><strong>' + e.porcentaje + '%</strong></td></tr>').join('') +
     '</tbody></table>' +
 
-    (r.por_tipo_texto.length
-      ? '<h3 style="margin-top:1.4rem">Logro por tipo de texto</h3><table><tbody>' +
-        r.por_tipo_texto.map((t) =>
-          '<tr><td style="width:230px">' + esc(t.tipo_texto || '(sin clasificar)') + '<br><span class="silencio">' + plural(t.preguntas, 'pregunta') + '</span></td>' +
-            '<td style="width:50%">' + barra(t.porcentaje) + '</td>' +
-            '<td><strong>' + t.porcentaje + '%</strong></td></tr>').join('') +
-        '</tbody></table>'
-      : '') +
     '</div>';
 }
 
@@ -668,14 +536,11 @@ function seccionTabla1(r) {
   return '<div class="tarjeta tabla-scroll"><h2>3. Resultados por pregunta</h2>' +
     '<p class="silencio">La alternativa correcta va destacada. Un distractor con alto porcentaje señala un error de comprensión que vale la pena indagar.</p>' +
     '<table><thead><tr>' +
-      '<th>N°</th><th>OA</th><th>Tipo de texto</th><th>Eje</th><th>Indicador</th><th>% respuestas</th><th>Logro</th>' +
+      '<th>N°</th><th>Criterio</th><th>% respuestas</th><th>Logro</th>' +
     '</tr></thead><tbody>' +
     r.preguntas.map((p) =>
       '<tr><td><strong>' + p.numero + '</strong></td>' +
-        '<td>' + esc(p.oa) + '</td>' +
-        '<td class="silencio">' + esc(p.tipo_texto) + '</td>' +
         '<td class="silencio">' + esc(p.eje) + '</td>' +
-        '<td class="silencio">' + esc(p.indicador) + '</td>' +
         '<td style="white-space:nowrap">' +
           p.distribucion.map((d) =>
             '<div' + (d.correcta ? ' style="font-weight:700"' : (d.porcentaje >= 30 && !d.correcta ? ' style="color:var(--rojo)"' : '')) + '>' +
@@ -752,8 +617,7 @@ export async function vistaInformeAlumno(nodo, intentoId) {
       r.preguntas.map((p) =>
         '<tr><td><strong>' + p.numero + '</strong></td>' +
           '<td class="silencio">' + esc(p.eje) + '</td>' +
-          '<td class="silencio">' + esc(p.indicador) + '</td>' +
-          '<td>' + (p.tipo === 'alternativas'
+            '<td>' + (p.tipo === 'alternativas'
             ? (p.respondio || '<span class="silencio">no respondió</span>')
             : (p.codigo_rubrica === null || p.codigo_rubrica === undefined
                 ? '<span class="etiqueta ambar">sin corregir</span>'
@@ -776,28 +640,6 @@ export async function vistaPrevia(nodo, id) {
   const sinClave = r.preguntas.filter((p) => !p.clave).length;
   const sinCriterio = r.preguntas.filter((p) => !p.eje).length;
 
-  const secciones = [];
-  const textos = [...r.textos].sort((a, b) => a.orden - b.orden || a.id - b.id);
-
-  for (const t of textos) {
-    const preguntas = r.preguntas.filter((p) => p.texto_id === t.id);
-    if (!preguntas.length) continue;
-    secciones.push(
-      '<section class="examen">' +
-        '<article class="lectura">' +
-          '<span class="etiqueta gris">' + esc(t.tipo_texto) + '</span>' +
-          '<h2 style="margin-top:.6rem">' + esc(t.titulo) + '</h2>' +
-          (t.autor ? '<p class="silencio">' + esc(t.autor) + '</p>' : '') +
-          '<div class="cuerpo">' + parrafos(t.contenido) + '</div>' +
-        '</article>' +
-        '<div>' + preguntas.map(dibujarPreguntaPrevia).join('') + '</div>' +
-      '</section>'
-    );
-  }
-
-  const sueltas = r.preguntas.filter((p) => !p.texto_id);
-  if (sueltas.length) secciones.push('<section>' + sueltas.map(dibujarPreguntaPrevia).join('') + '</section>');
-
   nodo.innerHTML = cabecera(r.prueba, 'vista') +
     '<div class="tarjeta no-imprimir"><div class="fila">' +
       '<div class="crece"><strong>Así la verá el estudiante.</strong> ' +
@@ -815,7 +657,7 @@ export async function vistaPrevia(nodo, id) {
     (r.prueba.instrucciones
       ? '<div class="tarjeta"><h3>Instrucciones</h3>' + parrafos(r.prueba.instrucciones) + '</div>'
       : '') +
-    secciones.join('');
+    '<div class="examen-simple">' + r.preguntas.map(dibujarPreguntaPrevia).join('') + '</div>';
 }
 
 function dibujarPreguntaPrevia(p) {

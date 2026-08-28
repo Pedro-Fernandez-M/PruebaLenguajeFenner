@@ -108,13 +108,14 @@ async function abrirIntento(intentoId) {
   examen = await api('/api/alumno/intentos/' + intentoId);
   respuestas = new Map();
   for (const r of examen.respuestas) {
-    respuestas.set(r.pregunta_id, { alternativa: r.alternativa, respuesta_texto: r.respuesta_texto || '' });
+    respuestas.set(r.pregunta_id, { alternativa: r.alternativa });
   }
 
   $('#examen-titulo').textContent = examen.prueba.titulo;
   $('#instrucciones').innerHTML = examen.prueba.instrucciones
     ? '<h3>Instrucciones</h3>' + parrafos(examen.prueba.instrucciones)
-    : '<h3>Instrucciones</h3><p>Lee cada texto con atención y responde todas las preguntas. Puedes volver atrás y cambiar tus respuestas antes de enviar.</p>';
+    : '<h3>Instrucciones</h3><p>Lee el texto impreso que te entregaron y marca aquí tu respuesta para cada pregunta. ' +
+      'Puedes volver atrás y cambiarlas antes de enviar.</p>';
 
   pintarExamen();
   iniciarTemporizador(examen.intento.segundos_restantes);
@@ -122,47 +123,24 @@ async function abrirIntento(intentoId) {
 }
 
 function pintarExamen() {
-  const secciones = [];
-  const textosOrdenados = [...examen.textos].sort((a, b) => a.orden - b.orden || a.id - b.id);
-
-  for (const texto of textosOrdenados) {
-    const preguntas = examen.preguntas.filter((p) => p.texto_id === texto.id);
-    if (!preguntas.length) continue;
-    secciones.push(
-      '<section class="examen">' +
-        '<article class="lectura">' +
-          '<span class="etiqueta gris">' + esc(texto.tipo_texto) + '</span>' +
-          '<h2 style="margin-top:.6rem">' + esc(texto.titulo) + '</h2>' +
-          (texto.autor ? '<p class="silencio">' + esc(texto.autor) + '</p>' : '') +
-          '<div class="cuerpo">' + parrafos(texto.contenido) + '</div>' +
-          (texto.fuente ? '<p class="silencio" style="margin-top:1rem">Fuente: ' + esc(texto.fuente) + '</p>' : '') +
-        '</article>' +
-        '<div>' + preguntas.map(dibujarPregunta).join('') + '</div>' +
-      '</section>'
-    );
-  }
-
-  const sueltas = examen.preguntas.filter((p) => !p.texto_id);
-  if (sueltas.length) secciones.push('<section>' + sueltas.map(dibujarPregunta).join('') + '</section>');
-
-  $('#secciones').innerHTML = secciones.join('');
+  // Los textos se entregan impresos: en pantalla van solo las preguntas, en
+  // orden correlativo.
+  $('#secciones').innerHTML =
+    '<div class="examen-simple">' + examen.preguntas.map(dibujarPregunta).join('') + '</div>';
   $('#secciones').querySelectorAll('[data-pregunta]').forEach(conectarPregunta);
   actualizarAvance();
 }
 
 function dibujarPregunta(p) {
   const guardada = respuestas.get(p.id) || {};
-  const cuerpo = p.tipo === 'alternativas'
-    ? (p.opciones || []).map((o) => {
+  const cuerpo = (p.opciones || []).map((o) => {
         const elegida = guardada.alternativa === o.letra;
         return '<label class="alternativa' + (elegida ? ' elegida' : '') + '">' +
           '<input type="radio" name="p' + p.id + '" value="' + o.letra + '"' + (elegida ? ' checked' : '') + '>' +
           '<span class="letra">' + o.letra + '.</span>' +
           '<span>' + esc(o.contenido) + '</span>' +
         '</label>';
-      }).join('')
-    : '<textarea rows="6" placeholder="Escribe aquí tu respuesta...">' + esc(guardada.respuesta_texto || '') + '</textarea>' +
-      '<p class="silencio">Fundamenta tu respuesta usando información del texto.</p>';
+      }).join('');
 
   return '<div class="pregunta" id="pregunta-' + p.numero + '" data-pregunta="' + p.id + '">' +
     '<p><span class="numero">' + p.numero + '.</span> ' + esc(p.enunciado) + '</p>' +
@@ -178,23 +156,12 @@ function conectarPregunta(nodo) {
     radio.addEventListener('change', () => {
       nodo.querySelectorAll('.alternativa').forEach((l) => l.classList.remove('elegida'));
       radio.closest('.alternativa').classList.add('elegida');
-      respuestas.set(id, { alternativa: radio.value, respuesta_texto: '' });
+      respuestas.set(id, { alternativa: radio.value });
       guardar(id);
       actualizarAvance();
     });
   });
 
-  const area = nodo.querySelector('textarea');
-  if (area) {
-    area.addEventListener('input', () => {
-      respuestas.set(id, { alternativa: null, respuesta_texto: area.value });
-      actualizarAvance();
-      // Se guarda con retardo para no golpear el servidor en cada tecla.
-      clearTimeout(pendientesGuardado.get(id));
-      pendientesGuardado.set(id, setTimeout(() => guardar(id), 800));
-    });
-    area.addEventListener('blur', () => guardar(id));
-  }
 }
 
 async function guardar(preguntaId) {
@@ -202,11 +169,7 @@ async function guardar(preguntaId) {
   const valor = respuestas.get(preguntaId) || {};
   try {
     await api('/api/alumno/intentos/' + examen.intento.id + '/respuesta', {
-      cuerpo: {
-        pregunta_id: preguntaId,
-        alternativa: valor.alternativa || null,
-        respuesta_texto: valor.respuesta_texto || '',
-      },
+      cuerpo: { pregunta_id: preguntaId, alternativa: valor.alternativa || null },
     });
     limpiarAviso($('#aviso-examen'));
   } catch (error) {
@@ -218,7 +181,7 @@ async function guardar(preguntaId) {
 function respondida(p) {
   const r = respuestas.get(p.id);
   if (!r) return false;
-  return p.tipo === 'alternativas' ? !!r.alternativa : !!String(r.respuesta_texto || '').trim();
+  return !!r.alternativa;
 }
 
 function actualizarAvance() {

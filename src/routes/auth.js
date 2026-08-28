@@ -19,7 +19,7 @@ router.post('/profesor/ingresar', async (req, res) => {
   }
 
   iniciarSesionProfesor(res, profesor);
-  res.json({ profesor: { id: profesor.id, nombre: profesor.nombre, email: profesor.email, rol: profesor.rol } });
+  res.json({ profesor: { id: profesor.id, nombre: profesor.nombre, email: profesor.email, rol: profesor.rol, cursos: profesor.cursos } });
 });
 
 router.post('/salir', (req, res) => {
@@ -47,8 +47,28 @@ router.post('/profesor/cambiar-password', exigirProfesor, async (req, res) => {
 
 // Alta de otros docentes. Solo el rol admin puede hacerlo.
 router.get('/profesores', exigirProfesor, async (req, res) => {
-  const filas = await db.all('SELECT id, nombre, email, rol, activo, creado_en FROM profesores ORDER BY nombre');
-  res.json({ profesores: filas });
+  const filas = await db.all('SELECT id, nombre, email, rol, cursos, activo, creado_en FROM profesores ORDER BY nombre');
+  const cursos = await db.all("SELECT DISTINCT curso FROM alumnos WHERE curso <> '' ORDER BY curso");
+  res.json({ profesores: filas, cursos_disponibles: cursos.map((c) => c.curso) });
+});
+
+/** Asigna los cursos que administra una docente. Solo el administrador. */
+router.put('/profesores/:id/cursos', exigirProfesor, async (req, res) => {
+  if (req.profesor.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede asignar cursos.' });
+  const cursos = String(req.body?.cursos || '').trim();
+  const r = await db.run('UPDATE profesores SET cursos = ? WHERE id = ?', [cursos, req.params.id]);
+  if (!r.cambios) return res.status(404).json({ error: 'Docente no encontrada.' });
+  res.json({ ok: true });
+});
+
+/** Restablece la contrasena de una docente. Solo el administrador. */
+router.put('/profesores/:id/password', exigirProfesor, async (req, res) => {
+  if (req.profesor.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede hacerlo.' });
+  const nueva = String(req.body?.password || '');
+  if (nueva.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
+  const r = await db.run('UPDATE profesores SET password_hash = ? WHERE id = ?', [hashPassword(nueva), req.params.id]);
+  if (!r.cambios) return res.status(404).json({ error: 'Docente no encontrada.' });
+  res.json({ ok: true });
 });
 
 router.post('/profesores', exigirProfesor, async (req, res) => {
@@ -64,8 +84,8 @@ router.post('/profesores', exigirProfesor, async (req, res) => {
   if (existente) return res.status(409).json({ error: 'Ya existe un docente con ese correo.' });
 
   const { id } = await db.run(
-    'INSERT INTO profesores (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)',
-    [nombre, email, hashPassword(password), rol]
+    'INSERT INTO profesores (nombre, email, password_hash, rol, cursos) VALUES (?, ?, ?, ?, ?)',
+    [nombre, email, hashPassword(password), rol, String(req.body?.cursos || '')]
   );
   res.status(201).json({ id });
 });
