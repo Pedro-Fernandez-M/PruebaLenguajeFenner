@@ -284,17 +284,12 @@ function leerPregunta(caja) {
   const marcada = caja.querySelector('[data-criterio]:checked');
   cuerpo.eje = marcada ? marcada.dataset.criterio : '';
 
-  if (cuerpo.tipo === 'alternativas') {
-    cuerpo.opciones = [...caja.querySelectorAll('[data-opcion]')].map((c) => ({ letra: c.dataset.opcion, contenido: c.value }));
-    const marcada = caja.querySelector('[data-clave]:checked');
-    cuerpo.clave = marcada ? marcada.dataset.clave : null;
-  } else {
-    cuerpo.rubricas = [2, 1, 0].map((codigo) => ({
-      codigo,
-      descripcion: (caja.querySelector('[data-rubrica="' + codigo + '"]') || {}).value || '',
-      ejemplos: (caja.querySelector('[data-ejemplo="' + codigo + '"]') || {}).value || '',
-    }));
-  }
+  cuerpo.opciones = [...caja.querySelectorAll('[data-opcion]')]
+    .map((c) => ({ letra: c.dataset.opcion, contenido: c.value }));
+
+  const correcta = caja.querySelector('[data-clave]:checked');
+  cuerpo.clave = correcta ? correcta.dataset.clave : null;
+
   return cuerpo;
 }
 

@@ -220,7 +220,6 @@ router.post('/pruebas/:id/preguntas', async (req, res) => {
       entero(req.body?.puntaje, 1),
     ]
   );
-  const tipo = 'alternativas';
 
   await guardarOpciones(id, req.body);
   res.status(201).json({ id });
