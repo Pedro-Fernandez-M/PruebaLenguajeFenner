@@ -105,8 +105,10 @@ Nivel II desde 40 %, Nivel III desde 70 %).
 
 ## El informe
 
-1. **Resultados según niveles de logro** — distribución de estudiantes en I / II / III.
-2. **Resultados por habilidad** — porcentaje promedio de logro en cada una.
+1. **Resultados según niveles de logro** — distribución de estudiantes en I / II / III,
+   con gráfico de torta.
+2. **Resultados según eje de habilidad** — porcentaje promedio de respuestas correctas
+   en cada habilidad, con gráfico de barras.
 3. **Resultados por curso** — cuando la prueba la rinde más de un curso: logro,
    niveles y habilidades de cada uno, lado a lado.
 4. **Resultados por pregunta** — el **porcentaje que eligió cada alternativa**,
@@ -116,7 +118,7 @@ Nivel II desde 40 %, Nivel III desde 70 %).
    las preguntas guía para el análisis pedagógico.
 
 Dos botones generan además hojas imprimibles, cada una con salto de página:
-**Informes por curso** (un informe completo por curso) e **Informes por alumno**
+**Informes por curso** (un informe completo por curso, con sus dos gráficos) e **Informes por alumno**
 (una hoja por estudiante con su logro, su nivel y su desempeño por habilidad).
 
 El CSV trae una fila por alumno y una columna por pregunta con la letra marcada,

@@ -1,4 +1,5 @@
-import { api, $, $$, esc, parrafos, mostrarAviso, fecha, barra, plural, ROMANO } from './comun.js';
+import { api, $, $$, esc, parrafos, mostrarAviso, fecha, barra, plural, ROMANO,
+  graficoBarras, graficoTorta } from './comun.js';
 
 const recargar = () => window.recargarVista();
 
@@ -501,31 +502,39 @@ function portada(r, e) {
     '</div>';
 }
 
-function seccionNiveles(r) {
+function seccionNiveles(r, conGrafico = true) {
+  const torta = graficoTorta(
+    r.distribucion_niveles.map((n) => ({ etiqueta: n.etiqueta, valor: n.cantidad })),
+    { titulo: 'Distribución por nivel de logro' }
+  );
+
   return '<div class="tarjeta"><h2>1. Resultados según niveles de logro</h2>' +
     '<p class="silencio">Nivel I: no logra los aprendizajes mínimos · Nivel II: logra parcialmente los OA · ' +
       'Nivel III: logra satisfactoriamente los OA. Umbrales: II desde ' + r.prueba.nivel2_min + '%, III desde ' + r.prueba.nivel3_min + '%.</p>' +
-    '<table><tbody>' +
-    r.distribucion_niveles.map((n) => {
-      const clase = n.nivel === 3 ? 'verde' : n.nivel === 2 ? 'ambar' : 'roja';
-      return '<tr><td style="width:130px"><span class="etiqueta ' + clase + '">' + n.etiqueta + '</span></td>' +
-        '<td style="width:55%">' + barra(n.porcentaje, clase) + '</td>' +
-        '<td><strong>' + n.porcentaje + '%</strong> <span class="silencio">(' + n.cantidad + ' estudiantes)</span></td></tr>';
-    }).join('') +
-    '</tbody></table></div>';
+    (conGrafico ? '<div class="con-grafico"><div>' + torta + '</div>' : '<div>') +
+      '<table><tbody>' +
+      r.distribucion_niveles.map((n) => {
+        const clase = n.nivel === 3 ? 'verde' : n.nivel === 2 ? 'ambar' : 'roja';
+        return '<tr><td style="width:110px"><span class="etiqueta ' + clase + '">' + n.etiqueta + '</span></td>' +
+          '<td>' + barra(n.porcentaje, clase) + '</td>' +
+          '<td style="white-space:nowrap"><strong>' + n.porcentaje + '%</strong> ' +
+          '<span class="silencio">(' + plural(n.cantidad, 'estudiante') + ')</span></td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+    '</div></div>';
 }
 
 function seccionEjes(r) {
-  return '<div class="tarjeta"><h2>2. Resultados por criterio</h2>' +
-    '<p class="silencio">Porcentaje promedio de logro del curso en cada criterio evaluado. ' +
-      'Una pregunta que declara dos criterios cuenta en ambos.</p>' +
-    '<table><tbody>' +
-    r.por_eje.map((e) =>
-      '<tr><td style="width:230px">' + esc(e.eje) + '<br><span class="silencio">' + plural(e.preguntas, 'pregunta') + '</span></td>' +
-        '<td style="width:50%">' + barra(e.porcentaje) + '</td>' +
-        '<td><strong>' + e.porcentaje + '%</strong></td></tr>').join('') +
-    '</tbody></table>' +
-
+  return '<div class="tarjeta"><h2>2. Resultados según eje de habilidad</h2>' +
+    '<p class="silencio">Porcentaje promedio de respuestas correctas del curso en cada habilidad. ' +
+      'Cada pregunta mide una sola.</p>' +
+    graficoBarras(
+      r.por_eje.map((e) => ({
+        etiqueta: e.eje,
+        valor: e.porcentaje,
+        detalle: plural(e.preguntas, 'pregunta'),
+      }))
+    ) +
     '</div>';
 }
 
@@ -817,8 +826,21 @@ function hojaDeCurso(r, e, indice) {
       '<p class="silencio">' + esc(r.prueba.titulo) + ' · ' + plural(r.total_alumnos, 'estudiante') +
         ' · logro promedio ' + r.promedio_logro + '%</p>' +
     '</div>' +
-    seccionNiveles(r) +
-    seccionEjes(r) +
+    '<div class="tarjeta">' +
+      '<h3>Resultados del curso según eje de habilidad</h3>' +
+      '<div class="par-graficos">' +
+        graficoBarras(
+          r.por_eje.map((e) => ({ etiqueta: e.eje, valor: e.porcentaje, detalle: plural(e.preguntas, 'pregunta') }))
+        ) +
+        graficoTorta(
+          r.distribucion_niveles.map((n) => ({ etiqueta: n.etiqueta, valor: n.cantidad })),
+          { titulo: 'Distribución por nivel de logro' }
+        ) +
+      '</div>' +
+      '<p class="silencio" style="text-align:center">' +
+        plural(r.total_alumnos, 'estudiante considerado', 'estudiantes considerados') + '</p>' +
+    '</div>' +
+    seccionNiveles(r, false) +
     seccionPorAlumno(r) +
   '</section>';
 }
