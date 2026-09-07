@@ -14,7 +14,10 @@
     "reset": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/seed.mjs --reset",
     "probar-postgres": "node --env-file-if-exists=.env scripts/probar-postgres.mjs",
     "crear-docentes": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/crear-docentes.mjs",
-    "replicar": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/replicar-prueba.mjs"
+    "replicar": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/replicar-prueba.mjs",
+    "generar-esquemas": "node scripts/generar-esquemas.mjs",
+    "probar-notas": "node scripts/probar-notas.mjs",
+    "estado": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/estado.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

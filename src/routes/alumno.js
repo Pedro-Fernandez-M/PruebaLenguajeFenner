@@ -193,6 +193,7 @@ router.get('/intentos/:id/resultado', exigirAlumno, async (req, res) => {
     puntaje_max: informe.intento.puntaje_max,
     porcentaje: informe.intento.porcentaje,
     nivel_logro: informe.intento.nivel_logro,
+    nota: informe.nota,
     por_eje: informe.por_eje,
   });
 });

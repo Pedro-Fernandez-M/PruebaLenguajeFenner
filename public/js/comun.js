@@ -55,6 +55,20 @@ export function plural(cantidad, singular, pluralForma) {
   return cantidad + ' ' + (Number(cantidad) === 1 ? singular : (pluralForma || singular + 's'));
 }
 
+/** "5,8" — con coma, un decimal, que es como se escribe una nota en Chile. */
+export function formatoNota(nota) {
+  if (nota === null || nota === undefined) return '—';
+  return Number(nota).toFixed(1).replace('.', ',');
+}
+
+/** Verde desde 5,0; ámbar entre 4,0 y 5,0; rojo bajo el 4,0. */
+export function colorNota(nota) {
+  if (nota === null || nota === undefined) return 'gris';
+  if (nota >= 5) return 'verde';
+  if (nota >= 4) return 'ambar';
+  return 'roja';
+}
+
 export function colorLogro(porcentaje) {
   if (porcentaje >= 70) return 'verde';
   if (porcentaje >= 40) return 'ambar';

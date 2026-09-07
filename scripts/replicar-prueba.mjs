@@ -61,11 +61,13 @@ for (const correo of correos) {
   const nueva = await db.tx(async () => {
     const { id } = await db.run(
       'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, ' +
-        'estado, cursos, mostrar_resultado_alumno, nivel2_min, nivel3_min, profesor_id) ' +
-        "VALUES (?, ?, ?, ?, ?, ?, 'borrador', '', ?, ?, ?, ?)",
+        'estado, cursos, mostrar_resultado_alumno, nivel2_min, nivel3_min, ' +
+        'nota_activa, nota_puntaje_7, nota_puntaje_4, nota_puntaje_1, profesor_id) ' +
+        "VALUES (?, ?, ?, ?, ?, ?, 'borrador', '', ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         origen.titulo, origen.asignatura, origen.nivel, origen.descripcion, origen.instrucciones,
         origen.duracion_min, origen.mostrar_resultado_alumno, origen.nivel2_min, origen.nivel3_min,
+        origen.nota_activa, origen.nota_puntaje_7, origen.nota_puntaje_4, origen.nota_puntaje_1,
         docente.id,
       ]
     );

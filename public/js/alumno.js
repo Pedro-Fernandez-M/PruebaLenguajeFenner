@@ -1,4 +1,4 @@
-import { api, $, esc, parrafos, mostrarAviso, limpiarAviso, reloj, ROMANO } from './comun.js';
+import { api, $, esc, parrafos, mostrarAviso, limpiarAviso, reloj, ROMANO, formatoNota, colorNota } from './comun.js';
 
 const vistas = {
   ingreso: $('#vista-ingreso'),
@@ -287,8 +287,12 @@ async function terminar(resultado, automatico) {
       $('#resultado-alumno').innerHTML =
         '<div class="tarjeta" style="text-align:left">' +
           '<h3>Tu resultado</h3>' +
-          '<p class="numero-grande">' + r.porcentaje + '%</p>' +
-          '<p class="silencio">' + r.puntaje + ' de ' + r.puntaje_max + ' puntos · Nivel ' + ROMANO[r.nivel_logro] + '</p>' +
+          (r.nota === null || r.nota === undefined
+            ? '<p class="numero-grande">' + r.porcentaje + '%</p>' +
+              '<p class="silencio">' + r.puntaje + ' de ' + r.puntaje_max + ' puntos · Nivel ' + ROMANO[r.nivel_logro] + '</p>'
+            : '<p class="numero-grande nota ' + colorNota(r.nota) + '">' + formatoNota(r.nota) + '</p>' +
+              '<p class="silencio">' + r.puntaje + ' de ' + r.puntaje_max + ' puntos · ' +
+                r.porcentaje + '% de logro · Nivel ' + ROMANO[r.nivel_logro] + '</p>') +
           '<table><tbody>' + r.por_eje.map((e) =>
             '<tr><td>' + esc(e.eje) + '</td><td style="text-align:right">' + e.porcentaje + '%</td></tr>').join('') +
           '</tbody></table>' +

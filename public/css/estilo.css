@@ -223,6 +223,37 @@ tbody tr:hover { background: #fafbfd; }
 /* Prueba sin textos: las preguntas en una columna centrada y legible */
 .examen-simple { max-width: 760px; }
 
+/* ------------------------------------------------------------- calificacion */
+
+/* Tabla de puntaje a nota: son decenas de celdas chicas, asi que se acomodan
+   solas al ancho disponible en vez de forzar un scroll horizontal. */
+.tabla-notas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: .3rem;
+}
+.celda-nota {
+  display: flex;
+  justify-content: space-between;
+  gap: .4rem;
+  padding: .22rem .5rem;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  background: var(--papel);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+.celda-nota b { font-weight: 600; color: var(--tinta-suave); }
+.celda-nota.aprueba { background: var(--verde-claro); border-color: #c4e3d2; color: var(--verde); }
+.celda-nota.aprueba b { color: var(--verde); }
+
+/* La nota, donde aparece, es lo primero que se busca en la pagina. */
+.nota { font-variant-numeric: tabular-nums; font-weight: 700; }
+.nota.roja { color: var(--rojo); }
+.nota.ambar { color: var(--ambar); }
+.nota.verde { color: var(--verde); }
+.nota.gris { color: var(--tinta-suave); font-weight: 400; }
+
 /* Graficos SVG: escalan al ancho disponible conservando su proporcion, asi que
    nunca quedan recortados ni en pantalla estrecha ni al imprimir. */
 .grafico {

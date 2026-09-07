@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { traducir } from '../src/db/postgres.js';
+import { MIGRACIONES, yaAplicada } from '../src/db/migraciones.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -167,6 +168,78 @@ const intentosQuedan = await get('SELECT COUNT(*) AS n FROM intentos WHERE prueb
 afirmar(Number(quedan.n) === 0 && Number(intentosQuedan.n) === 0, 'borrar la prueba arrastra preguntas e intentos');
 
 await bd.close();
+
+/* ------------------------------------------------------------- migraciones */
+
+// La base de Supabase ya tiene pruebas cargadas, asi que NUNCA recibe el
+// esquema nuevo: recibe los ALTER TABLE de MIGRACIONES sobre las tablas que ya
+// existen. Ese es el camino que hay que probar, y es el unico que puede perder
+// datos si esta mal. Aqui se reconstruye una base "vieja", se le cargan filas y
+// se corre la migracion de verdad encima.
+console.log('\nMigración sobre una base que ya tiene datos');
+
+const vieja = new PGlite();
+const esquemaViejo = fs.readFileSync(path.join(raiz, 'src/db/schema.postgres.sql'), 'utf8')
+  .split(/\r?\n/)
+  .filter((linea) => !/^\s*nota_(activa|puntaje_[741])\s/.test(linea))
+  .join('\n');
+
+afirmar(!/nota_activa/.test(esquemaViejo), 'la base de partida no tiene las columnas de nota');
+await vieja.exec(esquemaViejo);
+
+await vieja.query(
+  "INSERT INTO profesores (nombre, email, password_hash) VALUES ('Daniela', 'daniela@liceo.cl', 'x')"
+);
+await vieja.query(
+  "INSERT INTO pruebas (titulo, duracion_min, estado, cursos, nivel2_min, nivel3_min, profesor_id) " +
+    "VALUES ('Ensayo SIMCE 1', 90, 'publicada', '', 40, 70, 1)"
+);
+for (let n = 1; n <= 47; n++) {
+  await vieja.query(
+    "INSERT INTO preguntas (prueba_id, numero, enunciado, eje, clave) VALUES (1, $1, $2, 'Localizar', 'B')",
+    [n, 'Pregunta ' + n]
+  );
+}
+
+let migradas = 0;
+let errorMigracion = null;
+for (const sentencia of MIGRACIONES) {
+  try {
+    await vieja.exec(sentencia);
+    migradas += 1;
+  } catch (error) {
+    if (!yaAplicada(error)) errorMigracion = sentencia + ' → ' + error.message;
+  }
+}
+afirmar(!errorMigracion, 'las migraciones corren sin errores inesperados', errorMigracion || '');
+
+const despues = (await vieja.query('SELECT * FROM pruebas WHERE id = 1')).rows[0];
+const cuantas = (await vieja.query('SELECT COUNT(*) AS n FROM preguntas WHERE prueba_id = 1')).rows[0];
+
+afirmar(despues && despues.titulo === 'Ensayo SIMCE 1', 'la prueba que ya estaba sigue ahí', despues && despues.titulo);
+afirmar(Number(cuantas.n) === 47, 'conserva sus 47 preguntas', 'n=' + cuantas.n);
+afirmar(despues.duracion_min === 90 && despues.estado === 'publicada', 'conserva duración y estado');
+afirmar(Number(despues.nivel2_min) === 40 && Number(despues.nivel3_min) === 70, 'conserva los umbrales de nivel');
+afirmar(Number(despues.nota_activa) === 1, 'queda con la calificación activada', 'nota_activa=' + despues.nota_activa);
+afirmar(
+  despues.nota_puntaje_7 === null && despues.nota_puntaje_4 === null && despues.nota_puntaje_1 === null,
+  'los tres anclajes quedan en automático (NULL), no en cero'
+);
+
+// Correr la migracion dos veces es lo normal: cada arranque la ejecuta.
+let segundaVezLimpia = true;
+for (const sentencia of MIGRACIONES) {
+  try {
+    await vieja.exec(sentencia);
+  } catch (error) {
+    if (!yaAplicada(error)) segundaVezLimpia = false;
+  }
+}
+const otraVez = (await vieja.query('SELECT * FROM pruebas WHERE id = 1')).rows[0];
+afirmar(segundaVezLimpia, 'volver a migrar no rompe nada: cada arranque la ejecuta');
+afirmar(otraVez.titulo === 'Ensayo SIMCE 1' && Number(otraVez.nota_activa) === 1, 'y los datos siguen intactos');
+
+await vieja.close();
 
 console.log('\n' + (fallos === 0 ? 'Todo en orden: el esquema y las consultas corren en Postgres.' : fallos + ' comprobación(es) fallaron.') + '\n');
 process.exit(fallos === 0 ? 0 : 1);

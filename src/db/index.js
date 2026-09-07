@@ -5,6 +5,7 @@
 // Ambos drivers cumplen el mismo contrato (all/get/run/exec/tx/cerrar) y todas
 // las consultas se escriben con marcadores "?" y SQL portable a propósito.
 import { SQLITE, POSTGRES } from './esquemas.js';
+import { MIGRACIONES, yaAplicada } from './migraciones.js';
 
 const usarPostgres = !!process.env.DATABASE_URL;
 
@@ -21,34 +22,12 @@ export const AHORA = usarPostgres ? 'ahora_utc()' : "datetime('now')";
 
 let inicializada = false;
 
-// Columnas agregadas después de que ya había bases creadas. CREATE TABLE IF NOT
-// EXISTS no toca una tabla existente, así que hay que añadirlas aparte.
-const MIGRACIONES = [
-  "ALTER TABLE alumnos ADD COLUMN regimen TEXT NOT NULL DEFAULT ''",
-  // La columna se agrego para repartir cursos entre docentes; se descarto
-  // porque cualquiera evalua a cualquier curso.
-  'ALTER TABLE profesores DROP COLUMN cursos',
-  // Los textos se entregan impresos: la plataforma solo guarda preguntas.
-  'ALTER TABLE preguntas DROP COLUMN texto_id',
-  'ALTER TABLE preguntas DROP COLUMN tipo_texto',
-  'DROP TABLE IF EXISTS textos',
-  // Las rubricas solo servian a las preguntas de desarrollo.
-  'DROP TABLE IF EXISTS rubricas',
-];
-
 async function migrar() {
   for (const sentencia of MIGRACIONES) {
     try {
       await exec(sentencia);
     } catch (error) {
-      // Que la columna ya exista, o que ya se haya eliminado, es lo esperado en
-      // una base al día; cualquier otro error sí hay que verlo.
-      const mensaje = String(error.message || '').toLowerCase();
-      const yaAplicada = mensaje.includes('duplicate column')
-        || mensaje.includes('already exists')
-        || mensaje.includes('no such column')
-        || mensaje.includes('does not exist');
-      if (!yaAplicada) throw error;
+      if (!yaAplicada(error)) throw error;
     }
   }
 }

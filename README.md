@@ -77,6 +77,32 @@ Los **niveles de logro** (I, II, III) se calculan sobre el porcentaje de logro d
 cada estudiante, con umbrales configurables prueba por prueba (por defecto:
 Nivel II desde 40 %, Nivel III desde 70 %).
 
+### La nota
+
+Cada prueba lleva además una **calificación de 1,0 a 7,0**, definida con tres
+anclajes de puntaje: cuántos puntos valen un **7,0**, cuántos un **4,0** y
+cuántos un **1,0**. Entre ellos la nota se interpola en línea recta, con un
+quiebre en el 4,0; ese quiebre es lo que permite que el 4,0 esté al 60 % de
+exigencia sin que el 7,0 deje de ser el puntaje total.
+
+Los tres campos admiten quedarse **vacíos**, que no es lo mismo que cero:
+significa *calcúlalo tú*. Por defecto el 7,0 es el puntaje total de la prueba, el
+4,0 el 60 % de ese puntaje y el 1,0 son cero puntos. Conviene dejar el 7,0 en
+automático mientras la prueba se escribe, porque cada pregunta nueva cambia el
+total y un número fijo puesto al principio quedaría desfasado sin avisar.
+
+El editor muestra en vivo la **tabla completa de puntaje a nota** mientras se
+escribe la escala, para que no haya que descubrir el día de la evaluación que el
+4,0 quedó en un puntaje que nadie alcanza. Si la escala queda mal ordenada, la
+prueba simplemente no se califica y el editor lo dice: mejor sin nota que con una
+inventada.
+
+La nota **no se guarda**: se calcula desde el puntaje cada vez que se pide. Así,
+corregir una clave mal cargada o mover el puntaje del 4,0 actualiza todas las
+notas de una vez, sin recorrer los intentos. La fórmula vive en
+`public/js/notas.js` y la usan **el servidor y el navegador**, para que la vista
+previa del editor y la nota del informe no puedan discrepar.
+
 ---
 
 ## Flujo de trabajo del docente
@@ -98,8 +124,8 @@ Nivel II desde 40 %, Nivel III desde 70 %).
    rendirla y fija una duración en minutos.
 7. **Monitor.** Durante la prueba, ver quién está rindiendo y cuánto lleva respondido.
    Permite reabrir el intento de un alumno al que se le cortó la conexión.
-8. **Informe.** Las cinco secciones del informe del DIA, filtrable por curso,
-   imprimible y descargable en CSV.
+8. **Informe.** Las secciones del informe del DIA más la de calificación,
+   filtrable por curso, imprimible y descargable en CSV.
 
 ---
 
@@ -113,8 +139,10 @@ Nivel II desde 40 %, Nivel III desde 70 %).
    niveles y habilidades de cada uno, lado a lado.
 4. **Resultados por pregunta** — el **porcentaje que eligió cada alternativa**,
    incluida la opción *N* (no responde). Un distractor sobre 30 % se marca en rojo.
-5. **Resultados por estudiante** — puntaje, porcentaje y nivel.
-6. **Lectura preliminar** — habilidad más y menos lograda, preguntas más débiles y
+5. **Resultados por estudiante** — puntaje, porcentaje, **nota** y nivel.
+6. **Resultados según calificación** — promedio del curso, cuántos aprueban y la
+   distribución de notas por tramo, con gráfico de barras y de torta.
+7. **Lectura preliminar** — habilidad más y menos lograda, preguntas más débiles y
    las preguntas guía para el análisis pedagógico.
 
 Dos botones generan además hojas imprimibles, cada una con salto de página:
@@ -122,7 +150,8 @@ Dos botones generan además hojas imprimibles, cada una con salto de página:
 (una hoja por estudiante con su logro, su nivel y su desempeño por habilidad).
 
 El CSV trae una fila por alumno y una columna por pregunta con la letra marcada,
-más la clave y los niveles de logro.
+más la **nota**, la clave y los niveles de logro. La nota va con coma decimal y
+sin comillas, para que Excel la tome como número y no como texto.
 
 ---
 
@@ -151,6 +180,8 @@ src/
     postgres.js          driver para Supabase
     schema.sql           esquema SQLite
     schema.postgres.sql  esquema Postgres
+    esquemas.js          los dos .sql inlineados (generado, no editar a mano)
+    migraciones.js       los ALTER TABLE para bases que ya existen
   lib/
     seguridad.js         hash de contraseñas, sesiones firmadas, códigos de alumno
     sesion.js            middlewares de profesor y alumno
@@ -158,12 +189,17 @@ src/
   routes/
     auth.js  alumno.js  admin.js  informes.js
 public/                  interfaz (HTML, CSS y JS sin compilación)
+  js/notas.js            escala de notas: la usan el navegador Y el servidor
 api/index.js             punto de entrada para Vercel
 vercel.json              configuracion del despliegue
 scripts/
   seed.mjs               carga inicial
   datos-dia.mjs          estructura oficial del DIA transcrita
-  probar-postgres.mjs    prueba el esquema Postgres contra PGlite
+  estado.mjs             qué hay cargado en la base, sin tocarla
+  generar-esquemas.mjs   regenera esquemas.js desde los .sql
+  probar-notas.mjs       comprueba el cálculo de la nota
+  probar-postgres.mjs    prueba el esquema y la migración contra PGlite
+  replicar-prueba.mjs    copia una prueba a las demás docentes
 ```
 
 ---
@@ -246,6 +282,12 @@ npm run probar-postgres
 Aplica `schema.postgres.sql` y corre las consultas de la aplicación contra un
 Postgres real (PGlite, el mismo motor compilado a WebAssembly), sin necesidad de
 conectarse a Supabase.
+
+Además reconstruye una base **anterior**, le carga una prueba con sus preguntas y
+le aplica encima las migraciones de verdad, para comprobar que un `ALTER TABLE`
+sobre una base con datos no se lleva nada por delante. La base de Supabase nunca
+recibe el esquema nuevo —ya tiene las tablas—, así que ese es el único camino que
+recorre en la práctica.
 
 ### Diferencias que resuelve el driver de Postgres
 

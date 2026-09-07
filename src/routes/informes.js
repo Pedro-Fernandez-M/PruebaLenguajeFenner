@@ -93,8 +93,18 @@ router.post('/pruebas/:id/recalcular', async (req, res) => {
   res.json({ ok: true, recalculados: intentos.length });
 });
 
+// Coma decimal: es lo que espera Excel en español, y el separador de columnas
+// del archivo es ";" justamente para que la coma quede libre para los decimales.
+const formatoNota = (n) => (n === null || n === undefined ? '' : Number(n).toFixed(1).replace('.', ','));
+
+/** Puntaje legible: sin decimales cuando es redondo, con coma cuando no. */
+const formatoPuntos = (n) => String(Math.round(Number(n) * 10) / 10).replace('.', ',');
+
 const csvEscapar = (v) => {
   const s = v === null || v === undefined ? '' : String(v);
+  // Un decimal con coma ("4,2") NO se entrecomilla: entre comillas Excel lo
+  // importa como texto y la columna de notas deja de poder sumarse o promediarse.
+  if (/^-?\d+,\d+$/.test(s)) return s;
   return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 };
 
@@ -107,9 +117,25 @@ router.get('/pruebas/:id/informe.csv', async (req, res) => {
   const lineas = [];
   lineas.push(['Prueba', informe.prueba.titulo].map(csvEscapar).join(';'));
   lineas.push(['Nivel', informe.prueba.nivel].map(csvEscapar).join(';'));
+
+  const conNota = !!informe.escala_notas.activa;
+  if (conNota) {
+    const e = informe.escala_notas;
+    lineas.push(['Escala de notas',
+      '1,0 con ' + formatoPuntos(e.puntaje_1) + ' pts · ' +
+      '4,0 con ' + formatoPuntos(e.puntaje_4) + ' pts · ' +
+      '7,0 con ' + formatoPuntos(e.puntaje_7) + ' pts',
+    ].map(csvEscapar).join(';'));
+    lineas.push(['Promedio', formatoNota(informe.promedio_nota),
+      'Aprobados', informe.aprobados + ' de ' + informe.total_alumnos +
+        ' (' + formatoPuntos(informe.porcentaje_aprobacion) + '%)'].map(csvEscapar).join(';'));
+  }
   lineas.push([]);
 
   const encabezado = ['Matricula', 'Alumno', 'Curso', 'Puntaje', 'Puntaje maximo', '% logro', 'Nivel de logro'];
+  // La nota va antes del detalle pregunta a pregunta: es la columna que se
+  // traspasa al libro de clases, y buscarla despues de 47 columnas es un suplicio.
+  if (conNota) encabezado.push('Nota');
   for (const p of preguntas) encabezado.push('P' + p.numero);
   lineas.push(encabezado.map(csvEscapar).join(';'));
 
@@ -120,6 +146,7 @@ router.get('/pruebas/:id/informe.csv', async (req, res) => {
       alumno.matricula, alumno.nombre, alumno.curso, alumno.puntaje,
       alumno.puntaje_max, alumno.porcentaje, 'Nivel ' + ['', 'I', 'II', 'III'][alumno.nivel_logro || 1],
     ];
+    if (conNota) fila.push(formatoNota(alumno.nota));
     for (const p of preguntas) {
       const r = mapa.get(p.id);
       if (!r) { fila.push('N'); continue; }

@@ -1,5 +1,6 @@
 import { api, $, $$, esc, parrafos, mostrarAviso, fecha, barra, plural, ROMANO,
-  graficoBarras, graficoTorta } from './comun.js';
+  graficoBarras, graficoTorta, formatoNota, colorNota } from './comun.js';
+import { escalaDeNotas, calcularNota, NOTA_APROBACION } from './notas.js';
 
 const recargar = () => window.recargarVista();
 
@@ -61,17 +62,19 @@ export async function vistaEditor(nodo, id) {
   ]);
   const { prueba, preguntas } = datos;
 
+  const puntajeTotal = preguntas.reduce((s, p) => s + (p.puntaje || 0), 0);
+
   nodo.innerHTML = cabecera(prueba, 'editor') +
     '<div id="aviso" class="aviso"></div>' +
-    seccionAjustes(prueba, nomina.cursos) +
+    seccionAjustes(prueba, nomina.cursos, puntajeTotal) +
     seccionPreguntas(preguntas, prueba);
 
-  conectarAjustes(prueba);
+  conectarAjustes(prueba, puntajeTotal);
   conectarPreguntas(prueba, preguntas);
   restaurarFoco();
 }
 
-function seccionAjustes(p, cursos) {
+function seccionAjustes(p, cursos, puntajeTotal) {
   return '<div class="tarjeta"><h2>Ajustes de la prueba</h2>' +
     '<div class="rejilla dos">' +
       '<div class="campo"><label>Título</label><input id="p-titulo" value="' + esc(p.titulo) + '"></div>' +
@@ -94,10 +97,128 @@ function seccionAjustes(p, cursos) {
       '<div class="campo"><label>% mínimo para Nivel II</label><input id="p-n2" type="number" min="0" max="100" step="1" value="' + p.nivel2_min + '"></div>' +
       '<div class="campo"><label>% mínimo para Nivel III</label><input id="p-n3" type="number" min="0" max="100" step="1" value="' + p.nivel3_min + '"></div>' +
     '</div>' +
+    seccionNotas(p, puntajeTotal) +
+
     '<label class="alternativa" style="max-width:520px">' +
       '<input type="checkbox" id="p-mostrar"' + (p.mostrar_resultado_alumno ? ' checked' : '') + '>' +
       '<span>Mostrar al estudiante su porcentaje y nivel al terminar</span></label>' +
     '<div class="fila fin"><button id="p-guardar">Guardar ajustes</button></div></div>';
+}
+
+/* ------------------------------------------------------------ calificacion */
+
+/**
+ * Escala de notas: cuantos puntos valen un 7,0, un 4,0 y un 1,0.
+ *
+ * Los tres campos admiten quedarse vacios, y vacio NO es cero: significa
+ * "calcúlalo tú". El 7,0 sobre todo conviene dejarlo asi mientras la prueba se
+ * escribe, porque cada pregunta nueva cambia el total y un numero fijo puesto al
+ * principio quedaria desfasado sin avisar.
+ */
+function seccionNotas(p, puntajeTotal) {
+  const auto = escalaDeNotas({ ...p, nota_activa: 1 }, puntajeTotal);
+  const valor = (v) => (v === null || v === undefined ? '' : v);
+
+  const campo = (id, etiqueta, guardado, sugerido) =>
+    '<div class="campo"><label>' + etiqueta + '</label>' +
+      '<input id="' + id + '" type="number" min="0" step="0.5" data-nota ' +
+        'placeholder="automático: ' + sugerido + '" value="' + valor(guardado) + '"></div>';
+
+  return '<h3>Calificación</h3>' +
+    '<label class="alternativa" style="max-width:520px">' +
+      '<input type="checkbox" id="p-nota-activa"' + (p.nota_activa ? ' checked' : '') + '>' +
+      '<span>Calcular la nota de cada estudiante (escala de 1,0 a 7,0)</span></label>' +
+
+    '<div id="p-nota-caja">' +
+      '<p class="silencio">Fija cuántos puntos vale cada nota clave; las de en medio se calculan solas. ' +
+        'Déjalo en blanco y se usa lo habitual: el 7,0 con el puntaje total y el 4,0 con el 60&nbsp;% de ese puntaje.</p>' +
+      '<div class="rejilla tres">' +
+        campo('p-nota-7', 'Puntaje para el 7,0', p.nota_puntaje_7, formatoPuntos(auto.puntaje_7)) +
+        campo('p-nota-4', 'Puntaje para el 4,0', p.nota_puntaje_4, formatoPuntos(auto.puntaje_4)) +
+        campo('p-nota-1', 'Puntaje para el 1,0', p.nota_puntaje_1, formatoPuntos(auto.puntaje_1)) +
+      '</div>' +
+      '<div id="p-nota-resumen" class="aviso"></div>' +
+      '<details><summary class="silencio" style="cursor:pointer">Ver la tabla completa de puntaje a nota</summary>' +
+        '<div id="p-nota-tabla" style="margin-top:.6rem"></div></details>' +
+    '</div>';
+}
+
+/** Puntos sin decimales cuando son redondos: "28" en vez de "28.0". */
+const formatoPuntos = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+
+/**
+ * Mantiene la vista previa al dia mientras se escribe. Ver la tabla antes de
+ * guardar es lo que evita descubrir el 15 de octubre que el 4,0 quedo en un
+ * puntaje que nadie alcanza.
+ */
+function conectarNotas(puntajeTotal) {
+  const activa = $('#p-nota-activa');
+  const caja = $('#p-nota-caja');
+  const resumen = $('#p-nota-resumen');
+  const tabla = $('#p-nota-tabla');
+
+  const refrescar = () => {
+    caja.style.opacity = activa.checked ? '1' : '.45';
+    $$('[data-nota]').forEach((c) => { c.disabled = !activa.checked; });
+
+    const escala = escalaDeNotas({
+      nota_activa: 1,
+      nota_puntaje_7: $('#p-nota-7').value === '' ? null : $('#p-nota-7').value,
+      nota_puntaje_4: $('#p-nota-4').value === '' ? null : $('#p-nota-4').value,
+      nota_puntaje_1: $('#p-nota-1').value === '' ? null : $('#p-nota-1').value,
+    }, puntajeTotal);
+
+    if (!activa.checked) {
+      resumen.className = 'aviso';
+      resumen.textContent = '';
+      tabla.innerHTML = '';
+      return;
+    }
+
+    if (!escala.valida) {
+      resumen.className = 'aviso error';
+      resumen.textContent = puntajeTotal === 0
+        ? 'Todavía no hay preguntas, así que aún no se puede armar la escala.'
+        : 'Esta escala no sirve: el 1,0 tiene que ir por debajo del 4,0 y el 4,0 por debajo del 7,0. ' +
+          'Mientras esté así, la prueba no se califica.';
+      tabla.innerHTML = '';
+      return;
+    }
+
+    resumen.className = 'aviso info';
+    resumen.innerHTML = 'La prueba tiene <strong>' + formatoPuntos(puntajeTotal) + ' puntos</strong>. ' +
+      'El 4,0 se alcanza con <strong>' + formatoPuntos(escala.puntaje_4) + '</strong> ' +
+      '(' + formatoPuntos(escala.exigencia) + ' % de exigencia) y el 7,0 con ' +
+      '<strong>' + formatoPuntos(escala.puntaje_7) + '</strong>.' +
+      (escala.puntaje_7 > puntajeTotal
+        ? ' <strong>Ojo:</strong> el 7,0 pide más puntos de los que tiene la prueba, así que nadie puede sacarlo.'
+        : '');
+
+    tabla.innerHTML = tablaDePuntajes(escala, puntajeTotal);
+  };
+
+  [activa, $('#p-nota-7'), $('#p-nota-4'), $('#p-nota-1')]
+    .forEach((c) => c.addEventListener('input', refrescar));
+  activa.addEventListener('change', refrescar);
+  refrescar();
+}
+
+/** Puntaje por puntaje, para pegarla en la pizarra o revisarla de un vistazo. */
+function tablaDePuntajes(escala, puntajeTotal) {
+  const tope = Math.max(puntajeTotal, escala.puntaje_7);
+  const celdas = [];
+
+  for (let puntos = 0; puntos <= tope; puntos++) {
+    const nota = calcularNota(puntos, escala);
+    celdas.push(
+      '<span class="celda-nota' + (nota >= NOTA_APROBACION ? ' aprueba' : '') + '">' +
+        '<b>' + puntos + '</b> ' + formatoNota(nota) + '</span>'
+    );
+  }
+
+  return '<div class="tabla-notas">' + celdas.join('') + '</div>' +
+    '<p class="silencio" style="margin-top:.5rem">Puntos y la nota que les corresponde. ' +
+      'Lo verde es de 4,0 para arriba.</p>';
 }
 
 /**
@@ -149,8 +270,10 @@ function leerCursos() {
   return $$('[data-curso-habilitado]').filter((c) => c.checked).map((c) => c.dataset.cursoHabilitado).join(', ');
 }
 
-function conectarAjustes(prueba) {
+function conectarAjustes(prueba, puntajeTotal) {
   conectarCursos();
+  conectarNotas(puntajeTotal);
+
   $('#p-guardar').addEventListener('click', async () => {
     await api('/api/admin/pruebas/' + prueba.id, {
       metodo: 'PUT',
@@ -165,6 +288,12 @@ function conectarAjustes(prueba) {
         instrucciones: $('#p-instrucciones').value,
         nivel2_min: $('#p-n2').value,
         nivel3_min: $('#p-n3').value,
+        // Vacío viaja como cadena vacía y el servidor lo guarda como NULL, que
+        // es lo que significa «automático». Un 0 sería un puntaje de verdad.
+        nota_activa: $('#p-nota-activa').checked,
+        nota_puntaje_7: $('#p-nota-7').value,
+        nota_puntaje_4: $('#p-nota-4').value,
+        nota_puntaje_1: $('#p-nota-1').value,
         mostrar_resultado_alumno: $('#p-mostrar').checked,
       },
     });
@@ -455,6 +584,10 @@ export async function vistaInforme(nodo, id) {
     '<div class="rejilla tres">' +
       tarjetaDato('Estudiantes evaluados', r.total_alumnos, r.en_curso ? '<span class="silencio">' + r.en_curso + ' aún rindiendo</span>' : '') +
       tarjetaDato('Logro promedio del curso', r.promedio_logro + '%') +
+      (r.escala_notas.activa
+        ? tarjetaDato('Promedio de notas', formatoNota(r.promedio_nota),
+            '<span class="silencio">' + r.aprobados + ' de ' + r.total_alumnos + ' aprueban</span>')
+        : '') +
       tarjetaDato('Preguntas', r.preguntas.length) +
     '</div>' +
 
@@ -464,6 +597,7 @@ export async function vistaInforme(nodo, id) {
     seccionPorCurso(r) +
     seccionTabla1(r) +
     seccionPorAlumno(r) +
+    seccionCalificacion(r) +
     seccionConclusiones(r);
 
   $('#filtro').addEventListener('change', (e) => {
@@ -495,10 +629,17 @@ function portada(r, e) {
     dato('Nivel', r.prueba.nivel) +
     dato('Curso', r.filtro_curso || 'Todos los cursos') +
     dato('Estudiantes que considera este informe', String(r.total_alumnos)) +
+    (r.escala_notas.activa
+      ? dato('Escala de notas',
+          '1,0 con ' + formatoPuntos(r.escala_notas.puntaje_1) + ' pts · ' +
+          '4,0 con ' + formatoPuntos(r.escala_notas.puntaje_4) + ' pts · ' +
+          '7,0 con ' + formatoPuntos(r.escala_notas.puntaje_7) + ' pts')
+      : '') +
     dato('Fecha de generación', ahora) +
     '</tbody></table>' +
     '<p class="silencio" style="margin-top:1rem">Estos resultados sirven para ajustar la planificación ' +
-      'y focalizar el apoyo. No están pensados para calificar ni para comparar cursos entre sí.</p>' +
+      'y focalizar el apoyo. Las notas son una referencia del desempeño en esta prueba; ' +
+      'los cursos no se comparan entre sí.</p>' +
     '</div>';
 }
 
@@ -545,9 +686,11 @@ function seccionEjes(r) {
 function seccionPorCurso(r) {
   if (r.por_curso.length < 2) return '';
   const habilidades = r.por_eje.map((e) => e.eje);
+  const conNota = !!r.escala_notas.activa;
 
   return '<div class="tarjeta tabla-scroll"><h2>3. Resultados por curso</h2>' +
     '<table><thead><tr><th>Curso</th><th>Estudiantes</th><th>Logro</th>' +
+      (conNota ? '<th>Promedio</th><th>Aprueban</th>' : '') +
       '<th>Niveles de logro</th>' +
       habilidades.map((h) => '<th>' + esc(h) + '</th>').join('') +
     '</tr></thead><tbody>' +
@@ -555,6 +698,11 @@ function seccionPorCurso(r) {
       '<tr><td><strong>' + esc(c.curso) + '</strong></td>' +
         '<td class="silencio">' + c.total + '</td>' +
         '<td>' + barra(c.promedio) + ' <strong>' + c.promedio + '%</strong></td>' +
+        (conNota
+          ? '<td class="nota ' + colorNota(c.promedio_nota) + '">' + formatoNota(c.promedio_nota) + '</td>' +
+            '<td style="white-space:nowrap">' + c.aprobados + ' de ' + c.total +
+              ' <span class="silencio">(' + c.porcentaje_aprobacion + '%)</span></td>'
+          : '') +
         '<td style="white-space:nowrap">' + c.niveles.map((n) =>
           '<span class="etiqueta ' + (n.nivel === 3 ? 'verde' : n.nivel === 2 ? 'ambar' : 'roja') + '">' +
           n.etiqueta.replace('Nivel ', '') + ': ' + n.cantidad + '</span> ').join('') + '</td>' +
@@ -588,14 +736,77 @@ function seccionTabla1(r) {
 }
 
 function seccionPorAlumno(r) {
+  const conNota = !!r.escala_notas.activa;
+
   return '<div class="tarjeta tabla-scroll"><h2>5. Resultados por estudiante</h2>' +
-    '<table><thead><tr><th>Estudiante</th><th>Curso</th><th>Puntaje</th><th>% logro</th><th>Nivel</th><th></th></tr></thead><tbody>' +
+    '<table><thead><tr><th>Estudiante</th><th>Curso</th><th>Puntaje</th><th>% logro</th>' +
+      (conNota ? '<th>Nota</th>' : '') + '<th>Nivel</th><th></th></tr></thead><tbody>' +
     r.alumnos.map((a) =>
       '<tr><td>' + esc(a.nombre) + '</td><td>' + esc(a.curso) + '</td>' +
         '<td class="silencio">' + a.puntaje + ' / ' + a.puntaje_max + '</td>' +
         '<td>' + barra(a.porcentaje) + ' ' + a.porcentaje + '%</td>' +
+        (conNota ? '<td class="nota ' + colorNota(a.nota) + '">' + formatoNota(a.nota) + '</td>' : '') +
         '<td>' + etiquetaNivel(a.nivel_logro) + '</td>' +
         '<td class="no-imprimir"><a href="#intento/' + a.intento_id + '"><button class="neutro chico">Ver detalle</button></a></td></tr>').join('') +
+    '</tbody></table></div>';
+}
+
+/* --------------------------------------------------------- calificaciones */
+
+// Tramos con que se suele mirar un curso: quienes reprueban, quienes pasan
+// raspando, y los dos tramos de arriba.
+const TRAMOS_NOTA = [
+  { etiqueta: '1,0 a 3,9', desde: 1, hasta: 3.9 },
+  { etiqueta: '4,0 a 4,9', desde: 4, hasta: 4.9 },
+  { etiqueta: '5,0 a 5,9', desde: 5, hasta: 5.9 },
+  { etiqueta: '6,0 a 7,0', desde: 6, hasta: 7 },
+];
+
+function seccionCalificacion(r) {
+  if (!r.escala_notas.activa) return '';
+
+  const notas = r.alumnos.map((a) => a.nota).filter((n) => n !== null && n !== undefined);
+  if (!notas.length) return '';
+
+  const total = notas.length;
+  const pct = (n) => Math.round((n / total) * 1000) / 10;
+
+  const tramos = TRAMOS_NOTA.map((t) => {
+    const cantidad = notas.filter((n) => n >= t.desde && n <= t.hasta).length;
+    return { ...t, cantidad, porcentaje: pct(cantidad) };
+  });
+
+  const e = r.escala_notas;
+
+  return '<div class="tarjeta"><h2>6. Resultados según calificación</h2>' +
+    '<p class="silencio">Escala usada: <strong>1,0</strong> con ' + formatoPuntos(e.puntaje_1) + ' puntos, ' +
+      '<strong>4,0</strong> con ' + formatoPuntos(e.puntaje_4) + ' (' + formatoPuntos(e.exigencia) + ' % de exigencia) y ' +
+      '<strong>7,0</strong> con ' + formatoPuntos(e.puntaje_7) + '. Los puntajes intermedios se interpolan.</p>' +
+
+    '<div class="rejilla tres">' +
+      tarjetaDato('Promedio del curso', formatoNota(r.promedio_nota)) +
+      tarjetaDato('Aprueban', r.aprobados + ' de ' + total, '<span class="silencio">' + r.porcentaje_aprobacion + '%</span>') +
+      tarjetaDato('Reprueban', (total - r.aprobados) + ' de ' + total,
+        '<span class="silencio">' + (Math.round((100 - r.porcentaje_aprobacion) * 10) / 10) + '%</span>') +
+    '</div>' +
+
+    '<div class="par-graficos">' +
+      graficoBarras(
+        tramos.map((t) => ({ etiqueta: t.etiqueta, valor: t.porcentaje, detalle: plural(t.cantidad, 'estudiante') })),
+        { titulo: 'Distribución de notas', ejeY: '% del curso' }
+      ) +
+      graficoTorta(
+        [{ etiqueta: 'Aprueban', valor: r.aprobados }, { etiqueta: 'Reprueban', valor: total - r.aprobados }],
+        { titulo: 'Aprobación' }
+      ) +
+    '</div>' +
+
+    '<table><tbody>' +
+      tramos.map((t) =>
+        '<tr><td style="width:130px"><span class="nota ' + colorNota(t.desde) + '">' + t.etiqueta + '</span></td>' +
+          '<td>' + barra(t.porcentaje, colorNota(t.desde)) + '</td>' +
+          '<td style="white-space:nowrap"><strong>' + t.porcentaje + '%</strong> ' +
+          '<span class="silencio">(' + plural(t.cantidad, 'estudiante') + ')</span></td></tr>').join('') +
     '</tbody></table></div>';
 }
 
@@ -604,7 +815,8 @@ function seccionConclusiones(r) {
   const preguntasDebiles = [...r.preguntas].sort((a, b) => a.logro - b.logro).slice(0, 5);
   const bajoNivel1 = r.distribucion_niveles.find((n) => n.nivel === 1);
 
-  return '<div class="tarjeta"><h2>6. Lectura preliminar de los resultados</h2>' +
+  return '<div class="tarjeta"><h2>' + (r.escala_notas.activa ? '7' : '6') +
+    '. Lectura preliminar de los resultados</h2>' +
     '<ul>' +
       (ejes.length
         ? '<li>Criterio menos logrado: <strong>' + esc(ejes[0].eje) + '</strong> (' + ejes[0].porcentaje + '%). ' +
@@ -612,6 +824,11 @@ function seccionConclusiones(r) {
         : '') +
       '<li><strong>' + bajoNivel1.porcentaje + '%</strong> del curso (' + plural(bajoNivel1.cantidad, 'estudiante') + ') está en Nivel I: ' +
         'no demuestra haber alcanzado los aprendizajes mínimos del nivel.</li>' +
+      (r.escala_notas.activa
+        ? '<li>El promedio de notas es <strong>' + formatoNota(r.promedio_nota) + '</strong> y ' +
+          'aprueba el <strong>' + r.porcentaje_aprobacion + '%</strong> ' +
+          '(' + plural(r.aprobados, 'estudiante') + ' de ' + r.total_alumnos + ').</li>'
+        : '') +
       '<li>Preguntas con menor logro: ' +
         preguntasDebiles.map((p) => 'N° ' + p.numero + ' (' + p.logro + '%)').join(', ') + '.</li>' +
     '</ul>' +
@@ -636,6 +853,10 @@ export async function vistaInformeAlumno(nodo, intentoId) {
     '<p class="silencio">' + esc(r.prueba.titulo) + ' · ' + esc(r.intento.curso) + ' · entregada el ' + fecha(r.intento.enviado_en) + '</p>' +
 
     '<div class="rejilla tres">' +
+      (r.escala_notas.activa
+        ? tarjetaDato('Nota', '<span class="nota ' + colorNota(r.nota) + '">' + formatoNota(r.nota) + '</span>',
+            '<span class="silencio">4,0 con ' + formatoPuntos(r.escala_notas.puntaje_4) + ' puntos</span>')
+        : '') +
       tarjetaDato('Logro', r.intento.porcentaje + '%') +
       tarjetaDato('Puntaje', r.intento.puntaje + ' / ' + r.intento.puntaje_max) +
       tarjetaDato('Nivel de logro', ROMANO[r.intento.nivel_logro] || '—') +
@@ -758,6 +979,10 @@ function hojaDeAlumno(inf, e, indice) {
         ' · entregada el ' + fecha(intento.enviado_en) + '</p>' +
 
       '<div class="rejilla tres" style="margin:1rem 0">' +
+        (inf.escala_notas.activa
+          ? tarjetaDato('Nota', '<span class="nota ' + colorNota(inf.nota) + '">' + formatoNota(inf.nota) + '</span>',
+              '<span class="silencio">4,0 con ' + formatoPuntos(inf.escala_notas.puntaje_4) + ' puntos</span>')
+          : '') +
         tarjetaDato('Logro', intento.porcentaje + '%') +
         tarjetaDato('Puntaje', intento.puntaje + ' / ' + intento.puntaje_max) +
         tarjetaDato('Nivel de logro', ROMANO[intento.nivel_logro] || '—') +
@@ -824,7 +1049,10 @@ function hojaDeCurso(r, e, indice) {
         (e.rbd ? ' · RBD ' + esc(e.rbd) : '') + '</div>' +
       '<h2 style="margin:.3rem 0">' + esc(r.filtro_curso) + '</h2>' +
       '<p class="silencio">' + esc(r.prueba.titulo) + ' · ' + plural(r.total_alumnos, 'estudiante') +
-        ' · logro promedio ' + r.promedio_logro + '%</p>' +
+        ' · logro promedio ' + r.promedio_logro + '%' +
+        (r.escala_notas.activa
+          ? ' · promedio ' + formatoNota(r.promedio_nota) + ' · aprueba el ' + r.porcentaje_aprobacion + '%'
+          : '') + '</p>' +
     '</div>' +
     '<div class="tarjeta">' +
       '<h3>Resultados del curso según eje de habilidad</h3>' +
@@ -841,6 +1069,7 @@ function hojaDeCurso(r, e, indice) {
         plural(r.total_alumnos, 'estudiante considerado', 'estudiantes considerados') + '</p>' +
     '</div>' +
     seccionNiveles(r, false) +
+    seccionCalificacion(r) +
     seccionPorAlumno(r) +
   '</section>';
 }

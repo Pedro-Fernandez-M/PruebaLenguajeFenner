@@ -3,6 +3,7 @@
 //  - preguntas de desarrollo: codigo 2 (correcta), 1 (parcial), 0 (incorrecta)
 //  - niveles de logro I / II / III segun umbrales configurables por prueba
 import * as db from '../db/index.js';
+import { escalaDeNotas, calcularNota, promedioDeNotas, aprobada } from '../../public/js/notas.js';
 
 // Las tres habilidades de comprension lectora. Cada pregunta mide exactamente
 // una: son las que arman el desglose del informe.
@@ -260,6 +261,12 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
   });
 
   // 4. Resultados por estudiante
+  //
+  // La nota se calcula aqui y no se guarda: la escala vive en la prueba, asi que
+  // corregir una clave o mover el puntaje del 4,0 actualiza todas las notas sin
+  // tener que recorrer los intentos.
+  const escala = escalaDeNotas(prueba, preguntas.reduce((s, p) => s + p.puntaje, 0));
+
   const porAlumno = intentos.map((i) => ({
     intento_id: i.id,
     alumno_id: i.alumno_id,
@@ -270,6 +277,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     puntaje_max: i.puntaje_max,
     porcentaje: i.porcentaje,
     nivel_logro: i.nivel_logro,
+    nota: escala.activa ? calcularNota(i.puntaje, escala) : null,
     enviado_en: i.enviado_en,
   }));
 
@@ -297,12 +305,17 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       acumulado.set(pregunta.eje, a);
     }
 
+    const aprobadosCurso = suyos.filter((a) => aprobada(a.nota)).length;
+
     porCurso.push({
       curso,
       total: suyos.length,
       promedio: suyos.length
         ? Math.round((suyos.reduce((n, a) => n + (a.porcentaje || 0), 0) / suyos.length) * 10) / 10
         : 0,
+      promedio_nota: escala.activa ? promedioDeNotas(suyos.map((a) => a.nota)) : null,
+      aprobados: aprobadosCurso,
+      porcentaje_aprobacion: escala.activa ? pct(aprobadosCurso, suyos.length) : null,
       niveles: [1, 2, 3].map((n) => ({
         nivel: n,
         etiqueta: ['', 'Nivel I', 'Nivel II', 'Nivel III'][n],
@@ -339,6 +352,13 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     promedio_logro: totalAlumnos
       ? Math.round((porAlumno.reduce((s, a) => s + (a.porcentaje || 0), 0) / totalAlumnos) * 10) / 10
       : 0,
+    escala_notas: escala,
+    promedio_nota: escala.activa ? promedioDeNotas(porAlumno.map((a) => a.nota)) : null,
+    aprobados: porAlumno.filter((a) => aprobada(a.nota)).length,
+    reprobados: escala.activa ? porAlumno.filter((a) => !aprobada(a.nota)).length : 0,
+    porcentaje_aprobacion: escala.activa
+      ? pct(porAlumno.filter((a) => aprobada(a.nota)).length, totalAlumnos)
+      : null,
     distribucion_niveles: distribucionNiveles,
     por_eje: porEje,
     por_curso: porCurso,
@@ -389,9 +409,13 @@ export async function informeDeAlumno(intentoId) {
     };
   });
 
+  const escala = escalaDeNotas(prueba, preguntas.reduce((s, p) => s + p.puntaje, 0));
+
   return {
     intento,
     prueba,
+    escala_notas: escala,
+    nota: escala.activa ? calcularNota(intento.puntaje, escala) : null,
     por_eje: [...acumuladoEje.entries()].map(([eje, a]) => ({ eje, porcentaje: pct(a.obtenido, a.maximo) })),
     preguntas: detalle,
   };

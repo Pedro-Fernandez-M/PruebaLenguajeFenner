@@ -3,6 +3,7 @@ import * as db from '../db/index.js';
 import { exigirProfesor } from '../lib/sesion.js';
 import { generarCodigo } from '../lib/seguridad.js';
 import { EJES, LETRAS } from '../lib/evaluacion.js';
+import { validarEscala } from '../../public/js/notas.js';
 
 const router = express.Router();
 router.use(exigirProfesor);
@@ -12,6 +13,26 @@ const entero = (v, porDefecto = null) => {
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) ? n : porDefecto;
 };
+
+/**
+ * Anclaje de la escala de notas. Vacio significa "automatico", que se guarda
+ * como NULL: es distinto de un cero, que seria un puntaje de verdad.
+ * Si el campo no viene en la peticion, se conserva lo que ya estaba.
+ */
+function anclaje(cuerpo, campo, actual = null) {
+  if (!cuerpo || !(campo in cuerpo)) return actual;
+  const v = cuerpo[campo];
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Los tres anclajes ya normalizados, listos para validar y guardar. */
+const leerEscala = (cuerpo, prueba = null) => ({
+  puntaje_7: anclaje(cuerpo, 'nota_puntaje_7', prueba ? prueba.nota_puntaje_7 : null),
+  puntaje_4: anclaje(cuerpo, 'nota_puntaje_4', prueba ? prueba.nota_puntaje_4 : null),
+  puntaje_1: anclaje(cuerpo, 'nota_puntaje_1', prueba ? prueba.nota_puntaje_1 : null),
+});
 
 router.get('/catalogos', (_req, res) => {
   res.json({ ejes: EJES, letras: LETRAS });
@@ -58,9 +79,14 @@ router.post('/pruebas', async (req, res) => {
   const titulo = texto(req.body?.titulo).trim();
   if (!titulo) return res.status(400).json({ error: 'La prueba necesita un título.' });
 
+  const escala = leerEscala(req.body);
+  const revision = validarEscala(escala);
+  if (!revision.ok) return res.status(400).json({ error: revision.error });
+
   const { id } = await db.run(
-    'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, cursos, nivel2_min, nivel3_min, profesor_id) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, cursos, ' +
+      'nivel2_min, nivel3_min, nota_activa, nota_puntaje_7, nota_puntaje_4, nota_puntaje_1, profesor_id) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       titulo,
       texto(req.body?.asignatura, 'Lectura'),
@@ -71,6 +97,10 @@ router.post('/pruebas', async (req, res) => {
       texto(req.body?.cursos),
       Number(req.body?.nivel2_min ?? 40),
       Number(req.body?.nivel3_min ?? 70),
+      req.body?.nota_activa === undefined ? 1 : (req.body.nota_activa ? 1 : 0),
+      escala.puntaje_7,
+      escala.puntaje_4,
+      escala.puntaje_1,
       req.profesor.id,
     ]
   );
@@ -102,9 +132,14 @@ router.put('/pruebas/:id', async (req, res) => {
 
   const estado = ['borrador', 'publicada', 'cerrada'].includes(req.body?.estado) ? req.body.estado : prueba.estado;
 
+  const escala = leerEscala(req.body, prueba);
+  const revision = validarEscala(escala);
+  if (!revision.ok) return res.status(400).json({ error: revision.error });
+
   await db.run(
     'UPDATE pruebas SET titulo = ?, asignatura = ?, nivel = ?, descripcion = ?, instrucciones = ?, ' +
-      'duracion_min = ?, estado = ?, cursos = ?, mostrar_resultado_alumno = ?, nivel2_min = ?, nivel3_min = ? WHERE id = ?',
+      'duracion_min = ?, estado = ?, cursos = ?, mostrar_resultado_alumno = ?, nivel2_min = ?, nivel3_min = ?, ' +
+      'nota_activa = ?, nota_puntaje_7 = ?, nota_puntaje_4 = ?, nota_puntaje_1 = ? WHERE id = ?',
     [
       texto(req.body?.titulo, prueba.titulo).trim() || prueba.titulo,
       texto(req.body?.asignatura, prueba.asignatura),
@@ -117,6 +152,10 @@ router.put('/pruebas/:id', async (req, res) => {
       req.body?.mostrar_resultado_alumno ? 1 : 0,
       Number(req.body?.nivel2_min ?? prueba.nivel2_min),
       Number(req.body?.nivel3_min ?? prueba.nivel3_min),
+      req.body?.nota_activa === undefined ? prueba.nota_activa : (req.body.nota_activa ? 1 : 0),
+      escala.puntaje_7,
+      escala.puntaje_4,
+      escala.puntaje_1,
       prueba.id,
     ]
   );
@@ -137,10 +176,13 @@ router.post('/pruebas/:id/duplicar', async (req, res) => {
 
   const nuevaId = await db.tx(async () => {
     const { id } = await db.run(
-      'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, cursos, nivel2_min, nivel3_min, profesor_id) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, cursos, ' +
+        'nivel2_min, nivel3_min, nota_activa, nota_puntaje_7, nota_puntaje_4, nota_puntaje_1, profesor_id) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [prueba.titulo + ' (copia)', prueba.asignatura, prueba.nivel, prueba.descripcion, prueba.instrucciones,
-        prueba.duracion_min, prueba.cursos, prueba.nivel2_min, prueba.nivel3_min, req.profesor.id]
+        prueba.duracion_min, prueba.cursos, prueba.nivel2_min, prueba.nivel3_min,
+        prueba.nota_activa, prueba.nota_puntaje_7, prueba.nota_puntaje_4, prueba.nota_puntaje_1,
+        req.profesor.id]
     );
 
 
