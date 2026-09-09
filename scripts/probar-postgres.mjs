@@ -186,23 +186,33 @@ console.log('\nMigración sobre una base que ya tiene datos');
 const vieja = new PGlite();
 const esquemaActual = fs.readFileSync(path.join(raiz, 'src/db/schema.postgres.sql'), 'utf8');
 
-// Base "de antes": sin las columnas de nota y sin la tabla de criterios.
+// Base "de antes": sin las columnas de nota, sin la tabla de criterios y CON
+// mostrar_resultado_alumno, que es la columna que la migracion tiene que
+// eliminar. Reconstruirla asi es lo que hace que el DROP COLUMN se pruebe de
+// verdad: contra el esquema actual la sentencia fallaria con "does not exist" y
+// yaAplicada() se la tragaria sin ejercitar nada.
 const esquemaViejo = esquemaActual
   .replace(/CREATE TABLE IF NOT EXISTS criterios \([^;]*\);/s, '')
+  .replace(
+    /^(\s*cursos\s+TEXT\s+NOT NULL DEFAULT '',)$/m,
+    "$1\n  mostrar_resultado_alumno INTEGER NOT NULL DEFAULT 0,"
+  )
   .split(/\r?\n/)
   .filter((linea) => !/^\s*nota_(activa|puntaje_[741])\s/.test(linea))
   .join('\n');
 
 afirmar(!/nota_activa/.test(esquemaViejo), 'la base de partida no tiene las columnas de nota');
 afirmar(!/CREATE TABLE IF NOT EXISTS criterios/.test(esquemaViejo), 'ni la tabla de criterios');
+afirmar(/mostrar_resultado_alumno/.test(esquemaViejo), 'y sí tiene la columna que hay que eliminar');
 await vieja.exec(esquemaViejo);
 
 await vieja.query(
   "INSERT INTO profesores (nombre, email, password_hash) VALUES ('Daniela', 'daniela@liceo.cl', 'x')"
 );
 await vieja.query(
-  "INSERT INTO pruebas (titulo, duracion_min, estado, cursos, nivel2_min, nivel3_min, profesor_id) " +
-    "VALUES ('Ensayo SIMCE 1', 90, 'publicada', '', 40, 70, 1)"
+  "INSERT INTO pruebas (titulo, duracion_min, estado, cursos, mostrar_resultado_alumno, " +
+    "nivel2_min, nivel3_min, profesor_id) " +
+    "VALUES ('Ensayo SIMCE 1', 90, 'publicada', '', 1, 40, 70, 1)"
 );
 for (let n = 1; n <= 47; n++) {
   await vieja.query(
@@ -239,6 +249,14 @@ afirmar(Number(despues.nota_activa) === 1, 'queda con la calificación activada'
 afirmar(
   despues.nota_puntaje_7 === null && despues.nota_puntaje_4 === null && despues.nota_puntaje_1 === null,
   'los tres anclajes quedan en automático (NULL), no en cero'
+);
+
+// El estudiante no ve su nota, asi que la casilla que permitia mostrarsela ya
+// no existe: se elimina en vez de quedar dormida en la base.
+afirmar(
+  !('mostrar_resultado_alumno' in despues),
+  'la columna de mostrarle el resultado al alumno queda eliminada',
+  Object.keys(despues).filter((k) => k.startsWith('mostrar')).join(', ') || 'ninguna'
 );
 
 // Los criterios que antes venian fijos en el codigo pasan a ser filas: sin esta

@@ -1,4 +1,4 @@
-import { api, $, esc, parrafos, mostrarAviso, limpiarAviso, reloj, ROMANO, formatoNota, colorNota } from './comun.js';
+import { api, $, esc, parrafos, mostrarAviso, limpiarAviso, reloj } from './comun.js';
 
 const vistas = {
   ingreso: $('#vista-ingreso'),
@@ -173,7 +173,7 @@ async function guardar(preguntaId) {
     });
     limpiarAviso($('#aviso-examen'));
   } catch (error) {
-    if (error.estado === 409) return terminar({});
+    if (error.estado === 409) return terminar(false);
     mostrarAviso($('#aviso-examen'), 'No se pudo guardar la última respuesta (' + error.message + '). Revisa la conexión.');
   }
 }
@@ -267,48 +267,24 @@ async function enviar(automatico) {
   pendientesGuardado.clear();
 
   try {
-    const resultado = await api('/api/alumno/intentos/' + examen.intento.id + '/enviar', { cuerpo: {} });
-    await terminar(resultado, automatico);
+    await api('/api/alumno/intentos/' + examen.intento.id + '/enviar', { cuerpo: {} });
+    await terminar(automatico);
   } catch (error) {
     $('#btn-enviar').disabled = false;
     mostrarAviso($('#aviso-examen'), error.message);
   }
 }
 
-async function terminar(resultado, automatico) {
-  const intentoId = examen ? examen.intento.id : resultado.intento_id;
+async function terminar(automatico) {
   examen = null;
   $('#reloj-caja').innerHTML = '';
-  if (automatico) $('#mensaje-fin').textContent = 'Se acabó el tiempo y tu prueba se envió automáticamente.';
 
-  if (resultado && resultado.muestra_resultado) {
-    try {
-      const r = await api('/api/alumno/intentos/' + intentoId + '/resultado');
+  // El alumno no ve puntaje, porcentaje ni nota: la calificacion es del
+  // profesor. Aqui solo se confirma que la entrega quedo registrada.
+  $('#mensaje-fin').textContent = automatico
+    ? 'Se acabó el tiempo y tu prueba se envió automáticamente. Tus respuestas quedaron registradas.'
+    : 'Tus respuestas quedaron registradas. Tu profesora revisará la prueba y te comentará los resultados en clases.';
 
-      // Con la parte en papel sin revisar, el puntaje esta incompleto: se avisa
-      // en vez de mostrar una nota que despues va a cambiar.
-      if (r.pendiente) {
-        $('#resultado-alumno').innerHTML =
-          '<div class="tarjeta" style="text-align:left">' +
-            '<h3>Tu resultado</h3><p>' + esc(r.mensaje) + '</p></div>';
-        return verVista('fin');
-      }
-
-      $('#resultado-alumno').innerHTML =
-        '<div class="tarjeta" style="text-align:left">' +
-          '<h3>Tu resultado</h3>' +
-          (r.nota === null || r.nota === undefined
-            ? '<p class="numero-grande">' + r.porcentaje + '%</p>' +
-              '<p class="silencio">' + r.puntaje + ' de ' + r.puntaje_max + ' puntos · Nivel ' + ROMANO[r.nivel_logro] + '</p>'
-            : '<p class="numero-grande nota ' + colorNota(r.nota) + '">' + formatoNota(r.nota) + '</p>' +
-              '<p class="silencio">' + r.puntaje + ' de ' + r.puntaje_max + ' puntos · ' +
-                r.porcentaje + '% de logro · Nivel ' + ROMANO[r.nivel_logro] + '</p>') +
-          '<table><tbody>' + r.por_eje.map((e) =>
-            '<tr><td>' + esc(e.eje) + '</td><td style="text-align:right">' + e.porcentaje + '%</td></tr>').join('') +
-          '</tbody></table>' +
-        '</div>';
-    } catch { /* si el profesor cerró la vista de resultados, no se muestra nada */ }
-  }
   verVista('fin');
 }
 

@@ -39,6 +39,11 @@ export const MIGRACIONES = [
     "            UNION ALL SELECT 'Interpretar y relacionar' " +
     "            UNION ALL SELECT 'Reflexionar') c " +
     "WHERE NOT EXISTS (SELECT 1 FROM criterios)",
+  // La nota es del docente: el estudiante no la ve nunca. La casilla que
+  // permitia mostrarsela al terminar dejo de tener sentido, y dejarla dormida
+  // en la base seria una trampa: bastaria que alguien la pusiera en 1 para que
+  // volviera a aparecer una pantalla que ya no existe.
+  'ALTER TABLE pruebas DROP COLUMN mostrar_resultado_alumno',
 ];
 
 /**

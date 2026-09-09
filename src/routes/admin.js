@@ -79,28 +79,83 @@ router.get('/pruebas/:id/criterios', async (req, res) => {
   res.json({ criterios: await criteriosDe(prueba.profesor_id) });
 });
 
-router.post('/pruebas/:id/criterios', async (req, res) => {
-  const prueba = await pruebaPropia(req, res);
-  if (!prueba) return;
-
-  const nombre = texto(req.body?.nombre).trim().replace(/\s+/g, ' ');
-  if (!nombre) return res.status(400).json({ error: 'Escribe el nombre del criterio.' });
-  if (nombre.length > 80) return res.status(400).json({ error: 'El nombre es demasiado largo (máximo 80 caracteres).' });
+/**
+ * Revisa el nombre que llega del formulario y lo normaliza.
+ * `exceptoId` deja fuera de la comparacion al criterio que se esta renombrando,
+ * para que no choque consigo mismo al corregirle una tilde.
+ */
+async function revisarNombre(profesorId, valor, exceptoId = null) {
+  const nombre = texto(valor).trim().replace(/\s+/g, ' ');
+  if (!nombre) return { error: 'Escribe el nombre del criterio.' };
+  if (nombre.length > 80) return { error: 'El nombre es demasiado largo (máximo 80 caracteres).' };
 
   // La comparacion ignora mayusculas Y tildes: "Interpretar", "interpretar" e
   // "Interpretación" / "Interpretacion" tienen que chocar entre si. Si no, un
   // acento olvidado crea un criterio gemelo y el informe reparte las preguntas
   // entre los dos sin que nada lo advierta. Se guarda el texto tal como se
   // escribio; lo que se normaliza es solo la comparacion.
-  const existentes = await criteriosDe(prueba.profesor_id);
-  const repetido = existentes.find((c) => comparable(c.nombre) === comparable(nombre));
-  if (repetido) return res.status(409).json({ error: 'Ya existe el criterio «' + repetido.nombre + '».' });
+  const existentes = await criteriosDe(profesorId);
+  const repetido = existentes.find(
+    (c) => c.id !== Number(exceptoId) && comparable(c.nombre) === comparable(nombre)
+  );
+  if (repetido) return { error: 'Ya existe el criterio «' + repetido.nombre + '».' };
+
+  return { nombre };
+}
+
+router.post('/pruebas/:id/criterios', async (req, res) => {
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
+
+  const revision = await revisarNombre(prueba.profesor_id, req.body?.nombre);
+  if (revision.error) {
+    return res.status(revision.error.startsWith('Ya existe') ? 409 : 400).json({ error: revision.error });
+  }
 
   const { id } = await db.run(
     'INSERT INTO criterios (profesor_id, nombre) VALUES (?, ?)',
-    [prueba.profesor_id, nombre]
+    [prueba.profesor_id, revision.nombre]
   );
-  res.status(201).json({ id, nombre });
+  res.status(201).json({ id, nombre: revision.nombre });
+});
+
+/**
+ * Renombra un criterio y arrastra el cambio a las preguntas que lo usan.
+ *
+ * Las preguntas guardan el NOMBRE, asi que renombrar solo la fila de `criterios`
+ * dejaria a las preguntas clasificadas con el nombre viejo: en el informe
+ * aparecerian los dos, el nuevo vacio y el viejo con todo. Por eso ambas cosas
+ * van juntas y dentro de una transaccion.
+ */
+router.put('/pruebas/:id/criterios/:criterioId', async (req, res) => {
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
+
+  const criterio = await db.get(
+    'SELECT * FROM criterios WHERE id = ? AND profesor_id = ?',
+    [req.params.criterioId, prueba.profesor_id]
+  );
+  if (!criterio) return res.status(404).json({ error: 'Criterio no encontrado.' });
+
+  const revision = await revisarNombre(prueba.profesor_id, req.body?.nombre, criterio.id);
+  if (revision.error) {
+    return res.status(revision.error.startsWith('Ya existe') ? 409 : 400).json({ error: revision.error });
+  }
+  if (revision.nombre === criterio.nombre) return res.json({ ok: true, nombre: criterio.nombre, preguntas: 0 });
+
+  const reclasificadas = await db.tx(async () => {
+    await db.run('UPDATE criterios SET nombre = ? WHERE id = ?', [revision.nombre, criterio.id]);
+    // Solo las preguntas de ESTA docente: otra colega puede tener un criterio
+    // que se llama igual, y no es el mismo criterio.
+    const r = await db.run(
+      'UPDATE preguntas SET eje = ? WHERE eje = ? ' +
+        'AND prueba_id IN (SELECT id FROM pruebas WHERE profesor_id = ?)',
+      [revision.nombre, criterio.nombre, prueba.profesor_id]
+    );
+    return r.cambios;
+  });
+
+  res.json({ ok: true, nombre: revision.nombre, preguntas: reclasificadas });
 });
 
 router.delete('/pruebas/:id/criterios/:criterioId', async (req, res) => {
@@ -223,7 +278,7 @@ router.put('/pruebas/:id', async (req, res) => {
 
   await db.run(
     'UPDATE pruebas SET titulo = ?, asignatura = ?, nivel = ?, descripcion = ?, instrucciones = ?, ' +
-      'duracion_min = ?, estado = ?, cursos = ?, mostrar_resultado_alumno = ?, nivel2_min = ?, nivel3_min = ?, ' +
+      'duracion_min = ?, estado = ?, cursos = ?, nivel2_min = ?, nivel3_min = ?, ' +
       'nota_activa = ?, nota_puntaje_7 = ?, nota_puntaje_4 = ?, nota_puntaje_1 = ? WHERE id = ?',
     [
       texto(req.body?.titulo, prueba.titulo).trim() || prueba.titulo,
@@ -234,7 +289,6 @@ router.put('/pruebas/:id', async (req, res) => {
       req.body?.duracion_min === '' || req.body?.duracion_min === null ? null : entero(req.body?.duracion_min, prueba.duracion_min),
       estado,
       texto(req.body?.cursos, prueba.cursos),
-      req.body?.mostrar_resultado_alumno ? 1 : 0,
       Number(req.body?.nivel2_min ?? prueba.nivel2_min),
       Number(req.body?.nivel3_min ?? prueba.nivel3_min),
       req.body?.nota_activa === undefined ? prueba.nota_activa : (req.body.nota_activa ? 1 : 0),

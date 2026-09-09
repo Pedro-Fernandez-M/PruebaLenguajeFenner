@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS pruebas (
   duracion_min             INTEGER,
   estado                   TEXT    NOT NULL DEFAULT 'borrador',
   cursos                   TEXT    NOT NULL DEFAULT '',
-  mostrar_resultado_alumno INTEGER NOT NULL DEFAULT 0,
   nivel2_min               REAL    NOT NULL DEFAULT 40,
   nivel3_min               REAL    NOT NULL DEFAULT 70,
   nota_activa              INTEGER NOT NULL DEFAULT 1,

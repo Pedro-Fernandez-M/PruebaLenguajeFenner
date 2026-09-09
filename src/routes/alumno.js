@@ -2,7 +2,7 @@ import express from 'express';
 import * as db from '../db/index.js';
 import { normalizarCodigo } from '../lib/seguridad.js';
 import { iniciarSesionAlumno, cerrarSesion, exigirAlumno, COOKIE_ALUMNO } from '../lib/sesion.js';
-import { recalcularIntento, informeDeAlumno, LETRAS } from '../lib/evaluacion.js';
+import { recalcularIntento, LETRAS } from '../lib/evaluacion.js';
 
 const { AHORA } = db;
 
@@ -62,7 +62,6 @@ router.get('/pruebas', exigirAlumno, async (req, res) => {
       descripcion: p.descripcion,
       duracion_min: p.duracion_min,
       total_preguntas: total.n,
-      muestra_resultado: !!p.mostrar_resultado_alumno,
       intento: intento ? { id: intento.id, estado: intento.estado } : null,
     });
   }
@@ -181,44 +180,10 @@ router.post('/intentos/:id/enviar', exigirAlumno, async (req, res) => {
   await db.run("UPDATE intentos SET estado = 'enviado', enviado_en = " + AHORA + " WHERE id = ?", [intento.id]);
   await recalcularIntento(intento.id);
 
-  const prueba = await db.get('SELECT mostrar_resultado_alumno FROM pruebas WHERE id = ?', [intento.prueba_id]);
-  res.json({ ok: true, intento_id: intento.id, muestra_resultado: !!prueba.mostrar_resultado_alumno });
+  res.json({ ok: true, intento_id: intento.id });
 });
 
-router.get('/intentos/:id/resultado', exigirAlumno, async (req, res) => {
-  const intento = await db.get('SELECT * FROM intentos WHERE id = ? AND alumno_id = ?', [req.params.id, req.alumno.id]);
-  if (!intento) return res.status(404).json({ error: 'Intento no encontrado.' });
-
-  const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [intento.prueba_id]);
-  if (!prueba.mostrar_resultado_alumno) {
-    return res.status(403).json({ error: 'Tu profesor revisará los resultados y los comentará en clases.' });
-  }
-
-  const informe = await informeDeAlumno(intento.id);
-
-  // Si quedan preguntas en papel sin corregir, el puntaje esta incompleto y la
-  // nota saldria mas baja de lo que va a ser. Mostrarsela al estudiante seria
-  // darle un resultado falso, asi que se le dice que espere en vez de inventar.
-  if (informe.pendientes_correccion) {
-    return res.json({
-      prueba: { titulo: prueba.titulo, nivel: prueba.nivel },
-      pendiente: true,
-      mensaje: 'Tu profesora todavía tiene que revisar la parte que respondiste en la hoja impresa. ' +
-        'Tu resultado estará listo después de eso.',
-    });
-  }
-
-  // El alumno ve su desempeno por eje, no la clave de cada pregunta.
-  res.json({
-    prueba: { titulo: prueba.titulo, nivel: prueba.nivel },
-    pendiente: false,
-    puntaje: informe.intento.puntaje,
-    puntaje_max: informe.intento.puntaje_max,
-    porcentaje: informe.intento.porcentaje,
-    nivel_logro: informe.intento.nivel_logro,
-    nota: informe.nota,
-    por_eje: informe.por_eje,
-  });
-});
+// No hay ruta para que el alumno consulte su resultado, y es a proposito:
+// la nota es del profesor. El alumno solo sabe que su prueba quedo enviada.
 
 export default router;

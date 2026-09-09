@@ -68,19 +68,28 @@ una prueba de cuatro opciones y otra de cinco conviven sin configurar nada.
 ### Los criterios
 
 Cada pregunta declara **un criterio**, y la lista la arma cada docente: se
-escriben, se asignan con un clic y se quitan con una ×. Una base nueva parte con
-los tres ejes del DIA de Lectura (*Localizar*, *Interpretar y relacionar* y
-*Reflexionar*), pero son un punto de partida, no una lista cerrada.
+escriben, se renombran con el ✎, se quitan con la ×, y se asignan con un clic.
+Una base nueva parte con los tres ejes del DIA de Lectura (*Localizar*,
+*Interpretar y relacionar* y *Reflexionar*), pero son un punto de partida, no una
+lista cerrada.
 
 Se eligen de una lista en vez de escribirse en cada pregunta porque una tilde
 distinta crearía un criterio gemelo y el informe repartiría las preguntas entre
 los dos sin avisar. Por lo mismo, al crear uno la comparación ignora mayúsculas
 **y tildes**: «Extracción de información» y «extraccion de informacion» chocan.
 
-Las preguntas guardan el **nombre** del criterio, no una referencia. Así, quitar
-uno de la lista no borra la clasificación: las preguntas que ya lo tenían lo
-conservan, siguen apareciendo en el informe y el editor las muestra en gris como
-«fuera de la lista», para que guardarlas no lo pierda en silencio.
+Las preguntas guardan el **nombre** del criterio, no una referencia. Eso tiene
+dos consecuencias:
+
+- **Renombrar** un criterio arrastra el cambio a las preguntas que lo usan, en la
+  misma transacción. Si solo cambiara la lista, el informe mostraría dos: el
+  nuevo vacío y el viejo con todo.
+- **Quitarlo** de la lista no borra la clasificación: las preguntas que ya lo
+  tenían lo conservan, siguen apareciendo en el informe y el editor las muestra
+  en gris como «fuera de la lista», para que guardarlas no lo pierda en silencio.
+
+Un criterio solo alcanza a las pruebas de su docente: si dos tienen uno que se
+llama igual, no es el mismo criterio y renombrar el de una no toca el de la otra.
 
 ### Dos formas de responder
 
@@ -101,9 +110,8 @@ una columna por pregunta: **✓** pone el puntaje completo, **✗** pone cero, y
 una respuesta a medias se escribe el puntaje. Cada casilla se guarda sola y la
 nota se recalcula al momento.
 
-Mientras queden preguntas en papel sin corregir, esos puntos no suman: el informe
-lo avisa arriba y en rojo, y el estudiante no ve un resultado provisorio sino un
-«tu profesora todavía tiene que revisar la parte en papel».
+Mientras queden preguntas en papel sin corregir, esos puntos no suman, y el
+informe lo avisa arriba y en rojo.
 
 El N° de OA y el indicador quedan como datos opcionales.
 
@@ -140,6 +148,17 @@ corregir una clave mal cargada o mover el puntaje del 4,0 actualiza todas las
 notas de una vez, sin recorrer los intentos. La fórmula vive en
 `public/js/notas.js` y la usan **el servidor y el navegador**, para que la vista
 previa del editor y la nota del informe no puedan discrepar.
+
+### La nota es del docente
+
+El estudiante **nunca** ve su nota, ni su puntaje, ni su porcentaje, ni su nivel
+de logro. Al enviar solo se le confirma que sus respuestas quedaron registradas.
+
+No es una opción desactivada por defecto: no existe la ruta que se lo entregaría,
+de modo que tampoco hay nada que pedir a mano desde el navegador. Antes había una
+casilla para permitirlo, y se quitó junto con su columna en la base — dejarla
+dormida sería una trampa, porque bastaría ponerla en 1 para resucitar una
+pantalla que ya no existe.
 
 ---
 
@@ -255,7 +274,10 @@ scripts/
 - Las sesiones son cookies firmadas con HMAC-SHA256. **Cambia `SESSION_SECRET`
   en `.env`** por una cadena larga y aleatoria.
 - La prueba que recibe el alumno **nunca incluye la clave ni las pautas de
-  corrección**: se filtran en el servidor, no en el navegador.
+  corrección**: se filtran en el servidor, no en el navegador. Las preguntas en
+  papel no le llegan siquiera.
+- El alumno **no tiene manera de conocer su nota**: no existe una ruta que se la
+  entregue. La calificación solo se ve desde el panel docente.
 - El servidor local escucha en toda la red (`0.0.0.0`). Es lo que permite que los
   alumnos entren desde sus equipos, pero significa que cualquiera en esa red puede
   llegar al panel docente: la contraseña es lo único que lo protege.

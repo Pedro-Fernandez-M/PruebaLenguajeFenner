@@ -86,9 +86,8 @@ let demo = await db.get('SELECT * FROM pruebas WHERE titulo = ?', [TITULO_DEMO])
 
 if (!demo) {
   const { id } = await db.run(
-    'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, estado, ' +
-      'mostrar_resultado_alumno, profesor_id) ' +
-      "VALUES (?, 'Lectura', 'II medio', ?, ?, 30, 'publicada', 1, ?)",
+    'INSERT INTO pruebas (titulo, asignatura, nivel, descripcion, instrucciones, duracion_min, estado, profesor_id) ' +
+      "VALUES (?, 'Lectura', 'II medio', ?, ?, 30, 'publicada', ?)",
     [
       TITULO_DEMO,
       'Prueba corta para probar la plataforma de punta a punta: ingreso con código, respuesta, ' +

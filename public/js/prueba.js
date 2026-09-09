@@ -95,11 +95,14 @@ function seccionCriterios(criterios, preguntas) {
   const huerfanos = [...new Set(preguntas.map((p) => p.eje).filter((e) => e && !enLista.includes(e)))];
 
   const ficha = (nombre, cuantas, id) =>
-    '<span class="criterio' + (id ? '' : ' huerfano') + '">' +
-      esc(nombre) +
+    '<span class="criterio' + (id ? '' : ' huerfano') + '"' + (id ? ' data-criterio-id="' + id + '"' : '') + '>' +
+      '<span data-nombre-criterio>' + esc(nombre) + '</span>' +
       (cuantas ? ' <span class="silencio">(' + cuantas + ')</span>' : '') +
       (id
-        ? '<button class="quitar" data-borrar-criterio="' + id + '" ' +
+        ? '<button class="quitar" data-editar-criterio="' + id + '" ' +
+          'data-nombre="' + esc(nombre) + '" ' +
+          'title="Cambiarle el nombre a «' + esc(nombre) + '»">✎</button>' +
+          '<button class="quitar" data-borrar-criterio="' + id + '" ' +
           'data-nombre="' + esc(nombre) + '" data-usos="' + cuantas + '" ' +
           'title="Quitar «' + esc(nombre) + '» de la lista">×</button>'
         : '') +
@@ -147,6 +150,56 @@ function conectarCriterios(prueba) {
   $('#c-agregar').addEventListener('click', agregar);
   campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); agregar(); } });
 
+  // Renombrar: la ficha se convierte en un campo de texto en su lugar. Se hace
+  // aqui mismo y no en otra pantalla porque corregir una tilde tiene que costar
+  // dos clics, no una navegacion.
+  $$('[data-editar-criterio]').forEach((boton) => {
+    boton.addEventListener('click', () => {
+      const ficha = boton.closest('[data-criterio-id]');
+      if (ficha.querySelector('input')) return;
+
+      const nombre = boton.dataset.nombre;
+      const original = ficha.innerHTML;
+      ficha.innerHTML = '<input value="' + esc(nombre) + '" maxlength="80" ' +
+        'style="width:16rem;padding:.15rem .4rem;font-size:.85rem">' +
+        '<button class="quitar" data-confirmar>✓</button>' +
+        '<button class="quitar" data-cancelar>×</button>';
+
+      const campo = ficha.querySelector('input');
+      campo.focus();
+      campo.select();
+
+      const cancelar = () => { ficha.innerHTML = original; conectarCriterios(prueba); };
+
+      const guardar = async () => {
+        const nuevo = campo.value.trim();
+        if (!nuevo || nuevo === nombre) return cancelar();
+        try {
+          const r = await api('/api/admin/pruebas/' + prueba.id + '/criterios/' + boton.dataset.editarCriterio,
+            { metodo: 'PUT', cuerpo: { nombre: nuevo } });
+          window.mantenerScroll = true;
+          // Se espera el repintado: el aviso hay que escribirlo en el #aviso
+          // nuevo, porque el repintado reemplaza el nodo y se lo llevaria.
+          await recargar();
+          if (r.preguntas) {
+            mostrarAviso($('#aviso'),
+              'Criterio renombrado. Se actualizaron ' + plural(r.preguntas, 'pregunta') + '.', 'ok');
+          }
+        } catch (error) {
+          mostrarAviso($('#aviso'), error.message);
+          cancelar();
+        }
+      };
+
+      ficha.querySelector('[data-confirmar]').addEventListener('click', guardar);
+      ficha.querySelector('[data-cancelar]').addEventListener('click', cancelar);
+      campo.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); guardar(); }
+        if (e.key === 'Escape') { e.preventDefault(); cancelar(); }
+      });
+    });
+  });
+
   $$('[data-borrar-criterio]').forEach((boton) => {
     boton.addEventListener('click', async () => {
       const usos = Number(boton.dataset.usos) || 0;
@@ -189,9 +242,9 @@ function seccionAjustes(p, cursos, puntajeTotal) {
     '</div>' +
     seccionNotas(p, puntajeTotal) +
 
-    '<label class="alternativa" style="max-width:520px">' +
-      '<input type="checkbox" id="p-mostrar"' + (p.mostrar_resultado_alumno ? ' checked' : '') + '>' +
-      '<span>Mostrar al estudiante su porcentaje y nivel al terminar</span></label>' +
+    // Al estudiante no se le muestra ningun resultado, ni al terminar ni
+    // despues: la calificacion es del docente. Antes habia una casilla para
+    // permitirlo; se quito a proposito, no por descuido.
     '<div class="fila fin"><button id="p-guardar">Guardar ajustes</button></div></div>';
 }
 
@@ -384,7 +437,6 @@ function conectarAjustes(prueba, puntajeTotal) {
         nota_puntaje_7: $('#p-nota-7').value,
         nota_puntaje_4: $('#p-nota-4').value,
         nota_puntaje_1: $('#p-nota-1').value,
-        mostrar_resultado_alumno: $('#p-mostrar').checked,
       },
     });
     mostrarAviso($('#aviso'), 'Ajustes guardados.', 'ok');
