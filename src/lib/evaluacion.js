@@ -5,9 +5,18 @@
 import * as db from '../db/index.js';
 import { escalaDeNotas, calcularNota, promedioDeNotas, aprobada } from '../../public/js/notas.js';
 
-// Las tres habilidades de comprension lectora. Cada pregunta mide exactamente
-// una: son las que arman el desglose del informe.
-export const EJES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
+// Cada pregunta declara UN criterio, que es lo que agrupa el informe. La lista
+// ya no es fija: cada docente arma la suya (tabla `criterios`), porque las
+// pruebas cambian de un ano a otro. Aqui solo se usa el nombre que quedo
+// guardado en la pregunta.
+
+// Como responde el alumno cada pregunta:
+//   alternativas  la marca en pantalla y se corrige sola contra la clave
+//   papel         la escribe en la hoja impresa; no aparece en pantalla y la
+//                 corrige la docente, que anota el puntaje obtenido
+export const TIPOS_PREGUNTA = ['alternativas', 'papel'];
+
+export const esDePapel = (pregunta) => pregunta.tipo === 'papel';
 
 // Las pruebas de comprension lectora usan 4 o 5 alternativas segun el caso.
 // Se admiten hasta cinco: las que queden vacias no se muestran al estudiante
@@ -15,12 +24,11 @@ export const EJES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
 export const LETRAS = ['A', 'B', 'C', 'D', 'E'];
 
 
-// La ficha tecnica fija el codigo 2 como respuesta correcta, 1 como parcial y 0
-// como incorrecta (incluida la respuesta en blanco).
-export function puntajeDesarrollo(codigo, puntajeMaximo) {
-  if (codigo === 2) return puntajeMaximo;
-  if (codigo === 1) return puntajeMaximo / 2;
-  return 0;
+/** Deja el puntaje de una correccion dentro de lo que vale la pregunta. */
+export function puntajeValido(valor, puntajeMaximo) {
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(puntajeMaximo, Math.round(n * 100) / 100));
 }
 
 export function nivelDeLogro(porcentaje, nivel2Min, nivel3Min) {
@@ -57,7 +65,7 @@ export async function recalcularIntento(intentoId) {
     maximo += pregunta.puntaje;
     const respuesta = porPregunta.get(pregunta.id);
 
-    if (pregunta.tipo === 'alternativas') {
+    if (!esDePapel(pregunta)) {
       const acierto = !!(respuesta && respuesta.alternativa && respuesta.alternativa === pregunta.clave);
       const puntaje = acierto ? pregunta.puntaje : 0;
       obtenido += puntaje;
@@ -67,22 +75,15 @@ export async function recalcularIntento(intentoId) {
       continue;
     }
 
-    // Pregunta de desarrollo
-    const tieneTexto = respuesta && String(respuesta.respuesta_texto || '').trim().length > 0;
-    if (!tieneTexto) {
-      // Respuesta en blanco: la pauta del DIA la clasifica como codigo 0.
-      if (respuesta) {
-        await db.run('UPDATE respuestas SET codigo_rubrica = 0, puntaje = 0, corregida = 1 WHERE id = ?', [respuesta.id]);
-      }
-      continue;
-    }
-    if (respuesta.codigo_rubrica === null || respuesta.codigo_rubrica === undefined) {
+    // Pregunta en papel: el alumno no la responde en pantalla, asi que aqui no
+    // hay nada que corregir solo. Suma unicamente lo que la docente ya anoto;
+    // mientras no lo haga, cuenta como pendiente y NO como cero, para que el
+    // informe pueda avisar en vez de mostrar notas bajas inventadas.
+    if (respuesta && respuesta.corregida && respuesta.puntaje !== null && respuesta.puntaje !== undefined) {
+      obtenido += respuesta.puntaje;
+    } else {
       pendientes += 1;
-      continue;
     }
-    const puntaje = puntajeDesarrollo(respuesta.codigo_rubrica, pregunta.puntaje);
-    obtenido += puntaje;
-    await db.run('UPDATE respuestas SET puntaje = ?, corregida = 1 WHERE id = ?', [puntaje, respuesta.id]);
   }
 
   const porcentaje = maximo > 0 ? Math.round((obtenido / maximo) * 1000) / 10 : 0;
@@ -189,11 +190,12 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       indicador: pregunta.indicador,
       enunciado: pregunta.enunciado,
       clave: pregunta.clave,
+      puntaje: pregunta.puntaje,
       total: totalAlumnos,
       pendientes: 0,
     };
 
-    if (pregunta.tipo === 'alternativas') {
+    if (!esDePapel(pregunta)) {
       const conteo = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
       for (const r of lista) {
         if (r.alternativa && conteo[r.alternativa] !== undefined) conteo[r.alternativa] += 1;
@@ -225,22 +227,34 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       });
       fila.correctas = conteo[pregunta.clave] || 0;
     } else {
-      const conteo = { 2: 0, 1: 0, 0: 0, N: 0 };
-      for (const r of lista) {
-        if (r.codigo_rubrica === 2 || r.codigo_rubrica === 1 || r.codigo_rubrica === 0) conteo[r.codigo_rubrica] += 1;
-        else conteo.N += 1;
-      }
-      conteo.N += totalAlumnos - lista.length;
-      obtenidoPregunta = conteo[2] * pregunta.puntaje + conteo[1] * (pregunta.puntaje / 2);
+      // Pregunta en papel. Aqui no hay alternativas que repartir: lo que
+      // interesa es cuantos la tienen corregida, con cuanto puntaje, y cuantas
+      // quedan por revisar.
+      const corregidas = lista.filter((r) => r.corregida && r.puntaje !== null && r.puntaje !== undefined);
+      const sinCorregir = totalAlumnos - corregidas.length;
+
+      obtenidoPregunta = corregidas.reduce((s, r) => s + r.puntaje, 0);
+
+      const completo = corregidas.filter((r) => r.puntaje >= pregunta.puntaje).length;
+      const parcial = corregidas.filter((r) => r.puntaje > 0 && r.puntaje < pregunta.puntaje).length;
+      const cero = corregidas.filter((r) => r.puntaje === 0).length;
 
       fila.distribucion = [
-        { letra: 'RC', contenido: 'Respuesta correcta (código 2)', cantidad: conteo[2], porcentaje: pct(conteo[2], totalAlumnos), correcta: true },
-        { letra: 'RPC', contenido: 'Parcialmente correcta (código 1)', cantidad: conteo[1], porcentaje: pct(conteo[1], totalAlumnos), correcta: false },
-        { letra: 'RI', contenido: 'Incorrecta (código 0)', cantidad: conteo[0], porcentaje: pct(conteo[0], totalAlumnos), correcta: false },
-        { letra: 'N', contenido: 'Pendiente de corregir', cantidad: conteo.N, porcentaje: pct(conteo.N, totalAlumnos), correcta: false },
+        { letra: 'C', contenido: 'Correcta (puntaje completo)', cantidad: completo, porcentaje: pct(completo, totalAlumnos), correcta: true },
+        { letra: 'P', contenido: 'Puntaje parcial', cantidad: parcial, porcentaje: pct(parcial, totalAlumnos), correcta: false },
+        { letra: 'I', contenido: 'Incorrecta (cero puntos)', cantidad: cero, porcentaje: pct(cero, totalAlumnos), correcta: false },
+        { letra: 'N', contenido: 'Sin corregir', cantidad: sinCorregir, porcentaje: pct(sinCorregir, totalAlumnos), correcta: false },
       ];
-      fila.correctas = conteo[2];
-      fila.pendientes = conteo.N;
+      fila.correctas = completo;
+      fila.pendientes = sinCorregir;
+      fila.corregidas = corregidas.length;
+      // El logro se mide sobre lo YA corregido: con la mitad del curso sin
+      // revisar, dividir por el curso completo daria un porcentaje que parece
+      // un mal resultado cuando en realidad es trabajo a medio hacer.
+      fila.logro = pct(obtenidoPregunta, pregunta.puntaje * corregidas.length);
+      sumar(acumuladoEje, pregunta.eje, obtenidoPregunta, pregunta.puntaje * corregidas.length);
+      detallePreguntas.push(fila);
+      continue;
     }
 
     fila.logro = pct(obtenidoPregunta, maximoPregunta);
@@ -248,8 +262,13 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     detallePreguntas.push(fila);
   }
 
-  const clavesEje = EJES.filter((eje) => acumuladoEje.has(eje))
-    .concat([...acumuladoEje.keys()].filter((k) => !EJES.includes(k)));
+  // Los criterios se listan en el orden en que aparecen en la prueba (las
+  // preguntas vienen ordenadas por numero). Antes el orden lo daba una lista
+  // fija de tres; ahora cada docente arma la suya y ese orden ya no existe.
+  const clavesEje = [];
+  for (const p of preguntas) {
+    if (p.eje && acumuladoEje.has(p.eje) && !clavesEje.includes(p.eje)) clavesEje.push(p.eje);
+  }
 
   const porEje = clavesEje.map((eje) => {
     const a = acumuladoEje.get(eje);
@@ -298,10 +317,20 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     for (const pregunta of preguntas) {
       if (!pregunta.eje) continue;
       const lista = (respuestasPorPregunta.get(pregunta.id) || []).filter((r) => idsCurso.has(r.intento_id));
-      const aciertos = lista.filter((r) => r.alternativa && r.alternativa === pregunta.clave).length;
       const a = acumulado.get(pregunta.eje) || { obtenido: 0, maximo: 0 };
-      a.obtenido += aciertos * pregunta.puntaje;
-      a.maximo += pregunta.puntaje * suyos.length;
+
+      if (esDePapel(pregunta)) {
+        // Igual que en el detalle por pregunta: solo cuentan las ya corregidas,
+        // para no confundir "sin revisar" con "mal respondida".
+        const corregidas = lista.filter((r) => r.corregida && r.puntaje !== null && r.puntaje !== undefined);
+        a.obtenido += corregidas.reduce((s, r) => s + r.puntaje, 0);
+        a.maximo += pregunta.puntaje * corregidas.length;
+      } else {
+        const aciertos = lista.filter((r) => r.alternativa && r.alternativa === pregunta.clave).length;
+        a.obtenido += aciertos * pregunta.puntaje;
+        a.maximo += pregunta.puntaje * suyos.length;
+      }
+
       acumulado.set(pregunta.eje, a);
     }
 
@@ -322,7 +351,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
         cantidad: niveles[n],
         porcentaje: pct(niveles[n], suyos.length),
       })),
-      por_eje: EJES.filter((e) => acumulado.has(e)).map((eje) => ({
+      por_eje: clavesEje.filter((e) => acumulado.has(e)).map((eje) => ({
         eje,
         porcentaje: pct(acumulado.get(eje).obtenido, acumulado.get(eje).maximo),
       })),
@@ -348,6 +377,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     cursos_disponibles: cursos.map((c) => c.curso),
     total_alumnos: totalAlumnos,
     en_curso: enCurso ? enCurso.n : 0,
+    preguntas_papel: preguntas.filter(esDePapel).length,
     pendientes_correccion: pendientesCorreccion,
     promedio_logro: totalAlumnos
       ? Math.round((porAlumno.reduce((s, a) => s + (a.porcentaje || 0), 0) / totalAlumnos) * 10) / 10
@@ -381,10 +411,18 @@ export async function informeDeAlumno(intentoId) {
   const mapa = new Map(respuestas.map((r) => [r.pregunta_id, r]));
 
   const acumuladoEje = new Map();
+  let pendientes = 0;
+
   const detalle = preguntas.map((p) => {
     const r = mapa.get(p.id) || null;
     const puntaje = r && r.puntaje != null ? r.puntaje : 0;
-    if (p.eje) {
+    const porRevisar = esDePapel(p) && !(r && r.corregida);
+    if (porRevisar) pendientes += 1;
+
+    // Una pregunta en papel sin revisar no entra al desglose: contarla como
+    // cero haria ver el criterio como no logrado cuando lo que falta es
+    // corregirla.
+    if (p.eje && !porRevisar) {
       const a = acumuladoEje.get(p.eje) || { obtenido: 0, maximo: 0 };
       a.obtenido += puntaje;
       a.maximo += p.puntaje;
@@ -399,13 +437,13 @@ export async function informeDeAlumno(intentoId) {
       enunciado: p.enunciado,
       clave: p.clave,
       respondio: r ? r.alternativa : null,
-      respuesta_texto: r ? r.respuesta_texto : '',
-      codigo_rubrica: r ? r.codigo_rubrica : null,
       puntaje,
       puntaje_max: p.puntaje,
-      correcta: p.tipo === 'alternativas'
-        ? !!(r && r.alternativa === p.clave)
-        : !!(r && r.codigo_rubrica === 2),
+      // En papel no hay "respondió": hay corregida o pendiente.
+      corregida: esDePapel(p) ? !!(r && r.corregida) : true,
+      correcta: esDePapel(p)
+        ? !!(r && r.corregida && puntaje >= p.puntaje)
+        : !!(r && r.alternativa === p.clave),
     };
   });
 
@@ -415,7 +453,10 @@ export async function informeDeAlumno(intentoId) {
     intento,
     prueba,
     escala_notas: escala,
+    // Con preguntas en papel sin corregir la nota todavia no esta cerrada: se
+    // entrega igual, pero acompanada del pendiente para que la vista lo diga.
     nota: escala.activa ? calcularNota(intento.puntaje, escala) : null,
+    pendientes_correccion: pendientes,
     por_eje: [...acumuladoEje.entries()].map(([eje, a]) => ({ eje, porcentaje: pct(a.obtenido, a.maximo) })),
     preguntas: detalle,
   };

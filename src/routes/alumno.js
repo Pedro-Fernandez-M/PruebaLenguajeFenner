@@ -50,7 +50,9 @@ router.get('/pruebas', exigirAlumno, async (req, res) => {
   const disponibles = [];
   for (const p of pruebas) {
     if (!cursoHabilitado(p, req.alumno.curso)) continue;
-    const total = await db.get('SELECT COUNT(*) AS n FROM preguntas WHERE prueba_id = ?', [p.id]);
+    // Solo las que respondera en pantalla: las de papel van en la hoja impresa
+    // y anunciarlas aqui lo haria buscarlas en el navegador.
+    const total = await db.get("SELECT COUNT(*) AS n FROM preguntas WHERE prueba_id = ? AND tipo <> 'papel'", [p.id]);
     const intento = porPrueba.get(p.id) || null;
     disponibles.push({
       id: p.id,
@@ -101,8 +103,13 @@ router.get('/intentos/:id', exigirAlumno, async (req, res) => {
     return res.status(409).json({ error: 'Ya enviaste esta prueba.', intento_id: intento.id });
   }
 
+  // Las preguntas en papel NO viajan al navegador: el alumno las responde en la
+  // hoja impresa y las corrige la docente. Se conserva el numero original de
+  // cada una, asi que en pantalla puede verse 1, 2, 4, 5... y eso es correcto:
+  // los numeros tienen que calzar con el cuadernillo que tiene en la mesa.
   const preguntas = await db.all(
-    'SELECT id, numero, tipo, enunciado, cita, puntaje FROM preguntas WHERE prueba_id = ? ORDER BY numero',
+    "SELECT id, numero, tipo, enunciado, cita, puntaje FROM preguntas " +
+      "WHERE prueba_id = ? AND tipo <> 'papel' ORDER BY numero",
     [prueba.id]
   );
   const opciones = await db.all(
@@ -140,6 +147,8 @@ router.post('/intentos/:id/respuesta', exigirAlumno, async (req, res) => {
   const preguntaId = Number(req.body?.pregunta_id);
   const pregunta = await db.get('SELECT * FROM preguntas WHERE id = ? AND prueba_id = ?', [preguntaId, intento.prueba_id]);
   if (!pregunta) return res.status(400).json({ error: 'Pregunta inválida.' });
+  // Defensa: esta pregunta ni siquiera se le envio al navegador.
+  if (pregunta.tipo === 'papel') return res.status(400).json({ error: 'Esa pregunta se responde en la hoja impresa.' });
 
   const alternativa = LETRAS.includes(req.body?.alternativa) ? req.body.alternativa : null;
   const texto = String(req.body?.respuesta_texto ?? '').slice(0, 8000);
@@ -186,9 +195,23 @@ router.get('/intentos/:id/resultado', exigirAlumno, async (req, res) => {
   }
 
   const informe = await informeDeAlumno(intento.id);
+
+  // Si quedan preguntas en papel sin corregir, el puntaje esta incompleto y la
+  // nota saldria mas baja de lo que va a ser. Mostrarsela al estudiante seria
+  // darle un resultado falso, asi que se le dice que espere en vez de inventar.
+  if (informe.pendientes_correccion) {
+    return res.json({
+      prueba: { titulo: prueba.titulo, nivel: prueba.nivel },
+      pendiente: true,
+      mensaje: 'Tu profesora todavía tiene que revisar la parte que respondiste en la hoja impresa. ' +
+        'Tu resultado estará listo después de eso.',
+    });
+  }
+
   // El alumno ve su desempeno por eje, no la clave de cada pregunta.
   res.json({
     prueba: { titulo: prueba.titulo, nivel: prueba.nivel },
+    pendiente: false,
     puntaje: informe.intento.puntaje,
     puntaje_max: informe.intento.puntaje_max,
     porcentaje: informe.intento.porcentaje,

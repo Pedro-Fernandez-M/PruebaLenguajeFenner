@@ -2,7 +2,7 @@ import express from 'express';
 import * as db from '../db/index.js';
 import { exigirProfesor } from '../lib/sesion.js';
 import { generarCodigo } from '../lib/seguridad.js';
-import { EJES, LETRAS } from '../lib/evaluacion.js';
+import { LETRAS, TIPOS_PREGUNTA, recalcularIntento } from '../lib/evaluacion.js';
 import { validarEscala } from '../../public/js/notas.js';
 
 const router = express.Router();
@@ -35,7 +35,89 @@ const leerEscala = (cuerpo, prueba = null) => ({
 });
 
 router.get('/catalogos', (_req, res) => {
-  res.json({ ejes: EJES, letras: LETRAS });
+  res.json({ letras: LETRAS, tipos: TIPOS_PREGUNTA });
+});
+
+/* ---------------------------------------------------------------- criterios */
+
+/**
+ * Forma con que se comparan dos criterios: sin mayusculas y sin tildes.
+ *
+ * normalize('NFD') separa cada letra de su acento y \p{Diacritic} borra los
+ * acentos que quedaron sueltos, asi que "información" e "informacion" terminan
+ * siendo el mismo texto. Es lo que hace falta para que una tilde olvidada no
+ * cree un criterio gemelo que parta el informe en dos.
+ */
+const comparable = (nombre) => String(nombre)
+  .normalize('NFD')
+  .replace(/\p{Diacritic}/gu, '')
+  .toLowerCase()
+  .trim();
+
+/**
+ * Los criterios que puede asignar la duena de una prueba, con cuantas preguntas
+ * suyas usa cada uno.
+ *
+ * Son de cada docente, no del sistema: las pruebas cambian de un ano a otro. Y
+ * van colgados de la prueba y no de "quien esta mirando" porque la
+ * administradora puede abrir la prueba de una colega, y ahi los criterios que
+ * corresponden son los de la colega, no los suyos.
+ */
+async function criteriosDe(profesorId) {
+  return db.all(
+    'SELECT c.id, c.nombre, ' +
+      '(SELECT COUNT(*) FROM preguntas q JOIN pruebas p ON p.id = q.prueba_id ' +
+      '  WHERE p.profesor_id = c.profesor_id AND q.eje = c.nombre) AS preguntas ' +
+      'FROM criterios c WHERE c.profesor_id = ? ORDER BY c.id',
+    [profesorId]
+  );
+}
+
+router.get('/pruebas/:id/criterios', async (req, res) => {
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
+  res.json({ criterios: await criteriosDe(prueba.profesor_id) });
+});
+
+router.post('/pruebas/:id/criterios', async (req, res) => {
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
+
+  const nombre = texto(req.body?.nombre).trim().replace(/\s+/g, ' ');
+  if (!nombre) return res.status(400).json({ error: 'Escribe el nombre del criterio.' });
+  if (nombre.length > 80) return res.status(400).json({ error: 'El nombre es demasiado largo (máximo 80 caracteres).' });
+
+  // La comparacion ignora mayusculas Y tildes: "Interpretar", "interpretar" e
+  // "Interpretación" / "Interpretacion" tienen que chocar entre si. Si no, un
+  // acento olvidado crea un criterio gemelo y el informe reparte las preguntas
+  // entre los dos sin que nada lo advierta. Se guarda el texto tal como se
+  // escribio; lo que se normaliza es solo la comparacion.
+  const existentes = await criteriosDe(prueba.profesor_id);
+  const repetido = existentes.find((c) => comparable(c.nombre) === comparable(nombre));
+  if (repetido) return res.status(409).json({ error: 'Ya existe el criterio «' + repetido.nombre + '».' });
+
+  const { id } = await db.run(
+    'INSERT INTO criterios (profesor_id, nombre) VALUES (?, ?)',
+    [prueba.profesor_id, nombre]
+  );
+  res.status(201).json({ id, nombre });
+});
+
+router.delete('/pruebas/:id/criterios/:criterioId', async (req, res) => {
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
+
+  const criterio = await db.get(
+    'SELECT * FROM criterios WHERE id = ? AND profesor_id = ?',
+    [req.params.criterioId, prueba.profesor_id]
+  );
+  if (!criterio) return res.status(404).json({ error: 'Criterio no encontrado.' });
+
+  // Solo se saca de la lista de opciones. Las preguntas que ya lo tenian
+  // conservan su clasificacion y siguen apareciendo en el informe: borrar un
+  // rotulo no deberia borrar el trabajo hecho con el.
+  await db.run('DELETE FROM criterios WHERE id = ?', [criterio.id]);
+  res.json({ ok: true });
 });
 
 /* ------------------------------------------------------------------ pruebas */
@@ -119,6 +201,9 @@ router.get('/pruebas/:id', async (req, res) => {
 
   res.json({
     prueba,
+    // Los criterios viajan con la prueba: el editor los necesita para pintar las
+    // opciones de cada pregunta, y pedirlos aparte solo agregaria un viaje.
+    criterios: await criteriosDe(prueba.profesor_id),
     preguntas: preguntas.map((p) => ({
       ...p,
       opciones: opciones.filter((o) => o.pregunta_id === p.id),
@@ -245,17 +330,41 @@ async function guardarOpciones(preguntaId, cuerpo) {
   }
 }
 
+/** El tipo que llega del formulario, con 'alternativas' como respaldo. */
+const tipoPregunta = (v, porDefecto = 'alternativas') =>
+  (TIPOS_PREGUNTA.includes(v) ? v : porDefecto);
+
+/**
+ * La pregunta, solo si pertenece a una prueba de quien la pide.
+ * Sin esto basta con cambiar el numero de la direccion para editar o borrar una
+ * pregunta de otra docente.
+ */
+async function preguntaPropia(req, res) {
+  const pregunta = await db.get('SELECT * FROM preguntas WHERE id = ?', [req.params.id]);
+  if (!pregunta) {
+    res.status(404).json({ error: 'Pregunta no encontrada.' });
+    return null;
+  }
+  const prueba = await db.get('SELECT profesor_id FROM pruebas WHERE id = ?', [pregunta.prueba_id]);
+  if (req.profesor.rol !== 'admin' && prueba && prueba.profesor_id !== req.profesor.id) {
+    res.status(403).json({ error: 'Esa pregunta es de una prueba de otra docente.' });
+    return null;
+  }
+  return pregunta;
+}
+
 router.post('/pruebas/:id/preguntas', async (req, res) => {
-  const prueba = await db.get('SELECT id FROM pruebas WHERE id = ?', [req.params.id]);
-  if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
+  const prueba = await pruebaPropia(req, res);
+  if (!prueba) return;
 
   const ultimo = await db.get('SELECT COALESCE(MAX(numero), 0) AS n FROM preguntas WHERE prueba_id = ?', [prueba.id]);
 
   const { id } = await db.run(
     'INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, cita, oa, eje, indicador, clave, puntaje) ' +
-      "VALUES (?, ?, 'alternativas', ?, ?, ?, ?, ?, ?, ?)",
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       prueba.id, entero(req.body?.numero, ultimo.n + 1),
+      tipoPregunta(req.body?.tipo),
       texto(req.body?.enunciado), texto(req.body?.cita), texto(req.body?.oa),
       texto(req.body?.eje), texto(req.body?.indicador),
       LETRAS.includes(req.body?.clave) ? req.body.clave : null,
@@ -268,29 +377,59 @@ router.post('/pruebas/:id/preguntas', async (req, res) => {
 });
 
 router.put('/preguntas/:id', async (req, res) => {
-  const p = await db.get('SELECT * FROM preguntas WHERE id = ?', [req.params.id]);
-  if (!p) return res.status(404).json({ error: 'Pregunta no encontrada.' });
+  const p = await preguntaPropia(req, res);
+  if (!p) return;
+
+  const tipo = tipoPregunta(req.body?.tipo, p.tipo);
+  // Una pregunta en papel no tiene alternativa correcta: dejarle la clave del
+  // tipo anterior la haria aparecer como "clave B" en la vista previa.
+  const clave = tipo === 'papel'
+    ? null
+    : (LETRAS.includes(req.body?.clave) ? req.body.clave : p.clave);
 
   await db.run(
-    'UPDATE preguntas SET numero = ?, enunciado = ?, cita = ?, oa = ?, eje = ?, ' +
+    'UPDATE preguntas SET numero = ?, tipo = ?, enunciado = ?, cita = ?, oa = ?, eje = ?, ' +
       'indicador = ?, clave = ?, puntaje = ? WHERE id = ?',
     [
       entero(req.body?.numero, p.numero),
+      tipo,
       texto(req.body?.enunciado, p.enunciado), texto(req.body?.cita, p.cita),
       texto(req.body?.oa, p.oa), texto(req.body?.eje, p.eje),
       texto(req.body?.indicador, p.indicador),
-      LETRAS.includes(req.body?.clave) ? req.body.clave : p.clave,
+      clave,
       entero(req.body?.puntaje, p.puntaje),
       p.id,
     ]
   );
 
-  if (req.body?.opciones) await guardarOpciones(p.id, req.body);
+  if (tipo !== 'papel' && req.body?.opciones) await guardarOpciones(p.id, req.body);
+
+  // Cambiarle el tipo a una pregunta ya respondida invalida lo que habia
+  // registrado: una respuesta marcada en pantalla no es una correccion hecha a
+  // mano, y al reves tampoco. Sin esto, pasar una pregunta a papel dejaria sus
+  // respuestas viejas marcadas como "ya corregidas" y el informe diria que no
+  // falta nada por revisar.
+  if (tipo !== p.tipo) {
+    const afectados = await db.all(
+      'SELECT DISTINCT intento_id FROM respuestas WHERE pregunta_id = ?', [p.id]
+    );
+    if (afectados.length) {
+      await db.run(
+        'UPDATE respuestas SET alternativa = NULL, puntaje = NULL, corregida = 0 WHERE pregunta_id = ?',
+        [p.id]
+      );
+      for (const { intento_id } of afectados) await recalcularIntento(intento_id);
+    }
+    return res.json({ ok: true, respuestas_reiniciadas: afectados.length });
+  }
+
   res.json({ ok: true });
 });
 
 router.delete('/preguntas/:id', async (req, res) => {
-  await db.run('DELETE FROM preguntas WHERE id = ?', [req.params.id]);
+  const p = await preguntaPropia(req, res);
+  if (!p) return;
+  await db.run('DELETE FROM preguntas WHERE id = ?', [p.id]);
   res.json({ ok: true });
 });
 

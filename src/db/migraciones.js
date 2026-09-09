@@ -25,6 +25,20 @@ export const MIGRACIONES = [
   'ALTER TABLE pruebas ADD COLUMN nota_puntaje_7 REAL',
   'ALTER TABLE pruebas ADD COLUMN nota_puntaje_4 REAL',
   'ALTER TABLE pruebas ADD COLUMN nota_puntaje_1 REAL',
+  // La tabla criterios la crea el esquema (CREATE TABLE IF NOT EXISTS). Lo que
+  // hace falta es dejar a cada docente con los tres criterios que ya venian
+  // fijos, para que las 235 preguntas ya clasificadas sigan teniendo su opcion
+  // disponible en el editor.
+  //
+  // El guardia es "criterios esta vacia", no "esta docente no tiene el criterio
+  // X": asi la siembra ocurre UNA vez. Con el guardia por criterio, borrar uno
+  // lo haria reaparecer en el siguiente arranque.
+  "INSERT INTO criterios (profesor_id, nombre) " +
+    "SELECT p.id, c.nombre FROM profesores p " +
+    "CROSS JOIN (SELECT 'Localizar' AS nombre " +
+    "            UNION ALL SELECT 'Interpretar y relacionar' " +
+    "            UNION ALL SELECT 'Reflexionar') c " +
+    "WHERE NOT EXISTS (SELECT 1 FROM criterios)",
 ];
 
 /**

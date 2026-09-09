@@ -1,5 +1,6 @@
 import { api, $, $$, esc, mostrarAviso, limpiarAviso, plural } from './comun.js';
-import { vistaEditor, vistaPrevia, vistaMonitor, vistaInforme, vistaInformesCursos, vistaInformesAlumnos, vistaInformeAlumno } from './prueba.js';
+import { vistaEditor, vistaPrevia, vistaMonitor, vistaCorregir, vistaInforme,
+  vistaInformesCursos, vistaInformesAlumnos, vistaInformeAlumno } from './prueba.js';
 
 const panel = $('#panel');
 let docente = null;
@@ -44,6 +45,7 @@ const rutas = [
   [/^#prueba\/(\d+)\/editor$/, vistaEditor],
   [/^#prueba\/(\d+)\/vista$/, vistaPrevia],
   [/^#prueba\/(\d+)\/monitor$/, vistaMonitor],
+  [/^#prueba\/(\d+)\/corregir$/, vistaCorregir],
   [/^#prueba\/(\d+)\/informe$/, vistaInforme],
   [/^#prueba\/(\d+)\/informes-cursos$/, vistaInformesCursos],
   [/^#prueba\/(\d+)\/informes-alumnos$/, vistaInformesAlumnos],

@@ -171,20 +171,30 @@ await bd.close();
 
 /* ------------------------------------------------------------- migraciones */
 
-// La base de Supabase ya tiene pruebas cargadas, asi que NUNCA recibe el
-// esquema nuevo: recibe los ALTER TABLE de MIGRACIONES sobre las tablas que ya
-// existen. Ese es el camino que hay que probar, y es el unico que puede perder
-// datos si esta mal. Aqui se reconstruye una base "vieja", se le cargan filas y
-// se corre la migracion de verdad encima.
+// La base de Supabase ya tiene pruebas cargadas, asi que sus tablas nunca se
+// vuelven a crear: lo unico que la pone al dia son las sentencias de
+// MIGRACIONES. Ese es el camino que hay que probar, y es el unico que puede
+// perder datos si esta mal.
+//
+// Se reproduce la secuencia exacta de inicializar(): esquema completo primero
+// (CREATE TABLE IF NOT EXISTS, que no toca lo que existe pero SI crea las tablas
+// nuevas) y migraciones despues. Si se probara solo con las migraciones, una que
+// dependa de una tabla nueva fallaria con "does not exist" y yaAplicada() se
+// tragaria el error sin que nadie se enterara.
 console.log('\nMigración sobre una base que ya tiene datos');
 
 const vieja = new PGlite();
-const esquemaViejo = fs.readFileSync(path.join(raiz, 'src/db/schema.postgres.sql'), 'utf8')
+const esquemaActual = fs.readFileSync(path.join(raiz, 'src/db/schema.postgres.sql'), 'utf8');
+
+// Base "de antes": sin las columnas de nota y sin la tabla de criterios.
+const esquemaViejo = esquemaActual
+  .replace(/CREATE TABLE IF NOT EXISTS criterios \([^;]*\);/s, '')
   .split(/\r?\n/)
   .filter((linea) => !/^\s*nota_(activa|puntaje_[741])\s/.test(linea))
   .join('\n');
 
 afirmar(!/nota_activa/.test(esquemaViejo), 'la base de partida no tiene las columnas de nota');
+afirmar(!/CREATE TABLE IF NOT EXISTS criterios/.test(esquemaViejo), 'ni la tabla de criterios');
 await vieja.exec(esquemaViejo);
 
 await vieja.query(
@@ -201,16 +211,21 @@ for (let n = 1; n <= 47; n++) {
   );
 }
 
-let migradas = 0;
-let errorMigracion = null;
-for (const sentencia of MIGRACIONES) {
-  try {
-    await vieja.exec(sentencia);
-    migradas += 1;
-  } catch (error) {
-    if (!yaAplicada(error)) errorMigracion = sentencia + ' → ' + error.message;
+/** Lo mismo que hace inicializar(): esquema y despues migraciones. */
+async function ponerAlDia() {
+  await vieja.exec(esquemaActual);
+  let error = null;
+  for (const sentencia of MIGRACIONES) {
+    try {
+      await vieja.exec(sentencia);
+    } catch (e) {
+      if (!yaAplicada(e)) error = sentencia.slice(0, 60) + '… → ' + e.message;
+    }
   }
+  return error;
 }
+
+const errorMigracion = await ponerAlDia();
 afirmar(!errorMigracion, 'las migraciones corren sin errores inesperados', errorMigracion || '');
 
 const despues = (await vieja.query('SELECT * FROM pruebas WHERE id = 1')).rows[0];
@@ -226,18 +241,64 @@ afirmar(
   'los tres anclajes quedan en automático (NULL), no en cero'
 );
 
+// Los criterios que antes venian fijos en el codigo pasan a ser filas: sin esta
+// siembra, las 47 preguntas ya clasificadas como "Localizar" se quedarian sin
+// esa opcion en el editor.
+const criterios = (await vieja.query('SELECT nombre FROM criterios WHERE profesor_id = 1 ORDER BY id')).rows;
+afirmar(criterios.length === 3, 'la docente queda con sus tres criterios', criterios.map((c) => c.nombre).join(', '));
+afirmar(
+  criterios.some((c) => c.nombre === 'Localizar'),
+  'incluye el que ya usaban las preguntas cargadas'
+);
+
+// Las preguntas guardan el NOMBRE del criterio, no un id: por eso una prueba
+// vieja sigue clasificada aunque la tabla de criterios acabe de nacer.
+const clasificadas = (await vieja.query(
+  "SELECT COUNT(*) AS n FROM preguntas WHERE prueba_id = 1 AND eje = 'Localizar'"
+)).rows[0];
+afirmar(Number(clasificadas.n) === 47, 'las preguntas conservan su criterio', 'n=' + clasificadas.n);
+
 // Correr la migracion dos veces es lo normal: cada arranque la ejecuta.
-let segundaVezLimpia = true;
-for (const sentencia of MIGRACIONES) {
-  try {
-    await vieja.exec(sentencia);
-  } catch (error) {
-    if (!yaAplicada(error)) segundaVezLimpia = false;
-  }
-}
+const errorSegundaVez = await ponerAlDia();
 const otraVez = (await vieja.query('SELECT * FROM pruebas WHERE id = 1')).rows[0];
-afirmar(segundaVezLimpia, 'volver a migrar no rompe nada: cada arranque la ejecuta');
+afirmar(!errorSegundaVez, 'volver a migrar no rompe nada: cada arranque la ejecuta', errorSegundaVez || '');
 afirmar(otraVez.titulo === 'Ensayo SIMCE 1' && Number(otraVez.nota_activa) === 1, 'y los datos siguen intactos');
+
+// Un criterio borrado a proposito NO puede reaparecer solo. Por eso la siembra
+// se guarda con "la tabla criterios esta vacia" y no con "falta este criterio".
+await vieja.query("DELETE FROM criterios WHERE nombre = 'Reflexionar'");
+await ponerAlDia();
+const trasBorrar = (await vieja.query('SELECT nombre FROM criterios WHERE profesor_id = 1')).rows;
+afirmar(
+  !trasBorrar.some((c) => c.nombre === 'Reflexionar'),
+  'un criterio borrado no vuelve en el siguiente arranque',
+  trasBorrar.map((c) => c.nombre).join(', ')
+);
+
+/* --------------------------------------------- preguntas en papel */
+
+console.log('\nPreguntas que se responden en papel');
+
+await vieja.query(
+  "INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, eje, puntaje) " +
+    "VALUES (1, 48, 'papel', 'Fundamenta tu respuesta', 'Localizar', 4)"
+);
+await vieja.query('INSERT INTO alumnos (nombre, curso, codigo) VALUES ($1, $2, $3)', ['Alumna', '2° D', 'ABCD-1234']);
+await vieja.query("INSERT INTO intentos (prueba_id, alumno_id, estado) VALUES (1, 1, 'enviado')");
+
+const enPantalla = (await vieja.query(
+  "SELECT COUNT(*) AS n FROM preguntas WHERE prueba_id = 1 AND tipo <> 'papel'"
+)).rows[0];
+afirmar(Number(enPantalla.n) === 47, 'la consulta del alumno deja fuera la de papel', 'n=' + enPantalla.n);
+
+// La correccion se guarda como puntaje en la respuesta, sin alternativa.
+await vieja.query(
+  'INSERT INTO respuestas (intento_id, pregunta_id, puntaje, corregida) VALUES (1, 48, $1, 1)', [2.5]
+);
+const anotada = (await vieja.query('SELECT * FROM respuestas WHERE pregunta_id = 48')).rows[0];
+afirmar(Number(anotada.puntaje) === 2.5, 'se guarda el puntaje parcial que anotó la docente', 'puntaje=' + anotada.puntaje);
+afirmar(anotada.alternativa === null, 'y sin alternativa, porque no la marcó el alumno');
+afirmar(Number(anotada.corregida) === 1, 'queda marcada como corregida');
 
 await vieja.close();
 

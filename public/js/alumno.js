@@ -284,6 +284,16 @@ async function terminar(resultado, automatico) {
   if (resultado && resultado.muestra_resultado) {
     try {
       const r = await api('/api/alumno/intentos/' + intentoId + '/resultado');
+
+      // Con la parte en papel sin revisar, el puntaje esta incompleto: se avisa
+      // en vez de mostrar una nota que despues va a cambiar.
+      if (r.pendiente) {
+        $('#resultado-alumno').innerHTML =
+          '<div class="tarjeta" style="text-align:left">' +
+            '<h3>Tu resultado</h3><p>' + esc(r.mensaje) + '</p></div>';
+        return verVista('fin');
+      }
+
       $('#resultado-alumno').innerHTML =
         '<div class="tarjeta" style="text-align:left">' +
           '<h3>Tu resultado</h3>' +

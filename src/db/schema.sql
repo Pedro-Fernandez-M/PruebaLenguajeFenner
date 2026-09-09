@@ -22,6 +22,19 @@ CREATE TABLE IF NOT EXISTS alumnos (
 );
 CREATE INDEX IF NOT EXISTS ix_alumnos_curso ON alumnos(curso);
 
+-- Criterios de evaluacion. Cada docente arma los suyos: las pruebas cambian
+-- de un ano a otro y de un departamento a otro, asi que la lista no puede ser
+-- fija. preguntas.eje guarda el NOMBRE, no un id: asi, borrar un criterio de
+-- la lista no borra la clasificacion de las preguntas que ya lo usaban ni
+-- deja el informe con huecos.
+CREATE TABLE IF NOT EXISTS criterios (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  profesor_id INTEGER NOT NULL REFERENCES profesores(id) ON DELETE CASCADE,
+  nombre      TEXT    NOT NULL,
+  creado_en   TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(profesor_id, nombre)
+);
+
 CREATE TABLE IF NOT EXISTS pruebas (
   id                       INTEGER PRIMARY KEY AUTOINCREMENT,
   titulo                   TEXT    NOT NULL,
@@ -47,6 +60,9 @@ CREATE TABLE IF NOT EXISTS preguntas (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   prueba_id  INTEGER NOT NULL REFERENCES pruebas(id) ON DELETE CASCADE,
   numero     INTEGER NOT NULL,
+  -- 'alternativas': el alumno la marca en pantalla y se corrige sola.
+  -- 'papel':        se responde en la hoja impresa; la corrige la docente
+  --                 y el puntaje obtenido queda en respuestas.puntaje.
   tipo       TEXT    NOT NULL DEFAULT 'alternativas',
   enunciado  TEXT    NOT NULL DEFAULT '',
   cita       TEXT    NOT NULL DEFAULT '',

@@ -43,6 +43,7 @@ function cabecera(prueba, activa) {
     ['editor', 'Editor'],
     ['vista', 'Ver la prueba'],
     ['monitor', 'Monitor'],
+    ['corregir', 'Corregir'],
     ['informe', 'Informe'],
   ];
   return '<div class="fila no-imprimir"><a href="#pruebas" class="silencio">← Pruebas</a></div>' +
@@ -63,15 +64,104 @@ export async function vistaEditor(nodo, id) {
   const { prueba, preguntas } = datos;
 
   const puntajeTotal = preguntas.reduce((s, p) => s + (p.puntaje || 0), 0);
+  const criterios = datos.criterios || [];
 
   nodo.innerHTML = cabecera(prueba, 'editor') +
     '<div id="aviso" class="aviso"></div>' +
     seccionAjustes(prueba, nomina.cursos, puntajeTotal) +
-    seccionPreguntas(preguntas, prueba);
+    seccionCriterios(criterios, preguntas) +
+    seccionPreguntas(preguntas, prueba, criterios);
 
   conectarAjustes(prueba, puntajeTotal);
+  conectarCriterios(prueba);
   conectarPreguntas(prueba, preguntas);
   restaurarFoco();
+}
+
+/* ---------------------------------------------------------------- criterios */
+
+/**
+ * Los criterios que la docente puede asignar a sus preguntas.
+ *
+ * Van en un panel aparte y no dentro de cada pregunta: con cuarenta y siete
+ * tarjetas, repetir el formulario de "agregar criterio" en cada una seria ruido.
+ * Aqui se administran una vez y abajo se eligen con un clic.
+ */
+function seccionCriterios(criterios, preguntas) {
+  // Criterios que alguna pregunta usa pero que ya no estan en la lista (los
+  // borro alguien despues de clasificar). Se muestran igual, porque el informe
+  // los sigue mostrando y esconderlos aqui seria mentir sobre la prueba.
+  const enLista = criterios.map((c) => c.nombre);
+  const huerfanos = [...new Set(preguntas.map((p) => p.eje).filter((e) => e && !enLista.includes(e)))];
+
+  const ficha = (nombre, cuantas, id) =>
+    '<span class="criterio' + (id ? '' : ' huerfano') + '">' +
+      esc(nombre) +
+      (cuantas ? ' <span class="silencio">(' + cuantas + ')</span>' : '') +
+      (id
+        ? '<button class="quitar" data-borrar-criterio="' + id + '" ' +
+          'data-nombre="' + esc(nombre) + '" data-usos="' + cuantas + '" ' +
+          'title="Quitar «' + esc(nombre) + '» de la lista">×</button>'
+        : '') +
+    '</span>';
+
+  const usos = (nombre) => preguntas.filter((p) => p.eje === nombre).length;
+
+  return '<div class="tarjeta"><h2>Criterios de evaluación</h2>' +
+    '<p class="silencio">Cada pregunta mide uno. Escribe los que use esta prueba; ' +
+      'quedan guardados para las siguientes. Entre paréntesis, cuántas preguntas de esta prueba lo usan.</p>' +
+
+    (criterios.length || huerfanos.length
+      ? '<div class="fila" style="gap:.4rem;margin-bottom:.8rem">' +
+          criterios.map((c) => ficha(c.nombre, usos(c.nombre), c.id)).join('') +
+          huerfanos.map((h) => ficha(h, usos(h), null)).join('') +
+        '</div>'
+      : '<p class="aviso info">Todavía no hay criterios. Escribe el primero abajo.</p>') +
+
+    (huerfanos.length
+      ? '<p class="silencio">Los criterios en gris ya no están en la lista, pero hay preguntas ' +
+        'clasificadas con ellos y siguen apareciendo en el informe.</p>'
+      : '') +
+
+    '<div class="fila">' +
+      '<input id="c-nuevo" class="crece" maxlength="80" placeholder="Escribe un criterio nuevo y presiona Agregar">' +
+      '<button id="c-agregar" class="secundario">Agregar</button>' +
+    '</div></div>';
+}
+
+function conectarCriterios(prueba) {
+  const campo = $('#c-nuevo');
+
+  const agregar = async () => {
+    const nombre = campo.value.trim();
+    if (!nombre) return;
+    try {
+      await api('/api/admin/pruebas/' + prueba.id + '/criterios', { cuerpo: { nombre } });
+      window.mantenerScroll = true;
+      recargar();
+    } catch (error) {
+      mostrarAviso($('#aviso'), error.message);
+    }
+  };
+
+  $('#c-agregar').addEventListener('click', agregar);
+  campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); agregar(); } });
+
+  $$('[data-borrar-criterio]').forEach((boton) => {
+    boton.addEventListener('click', async () => {
+      const usos = Number(boton.dataset.usos) || 0;
+      const aviso = usos
+        ? 'Lo usan ' + plural(usos, 'pregunta') + ' de esta prueba.\n\n' +
+          'Esas preguntas lo conservan y siguen apareciendo en el informe; lo que pasa ' +
+          'es que ya no podrás asignarlo a preguntas nuevas.\n\n¿Quitar «' + boton.dataset.nombre + '» de la lista?'
+        : '¿Quitar «' + boton.dataset.nombre + '» de la lista?';
+      if (!confirm(aviso)) return;
+
+      await api('/api/admin/pruebas/' + prueba.id + '/criterios/' + boton.dataset.borrarCriterio, { metodo: 'DELETE' });
+      window.mantenerScroll = true;
+      recargar();
+    });
+  });
 }
 
 function seccionAjustes(p, cursos, puntajeTotal) {
@@ -303,33 +393,66 @@ function conectarAjustes(prueba, puntajeTotal) {
 
 /* ----------------------------------------------------------------- preguntas */
 
-const HABILIDADES = ['Localizar', 'Interpretar y relacionar', 'Reflexionar'];
-
 /**
- * Habilidad que mide la pregunta. Son tres y cada pregunta mide exactamente
- * una, asi que van como opciones excluyentes y no como texto libre: escribirla
- * a mano permitiria que una tilde distinta creara una habilidad aparte en el
- * informe sin que nada lo advirtiera.
+ * Criterio que mide la pregunta: uno solo, elegido de la lista de arriba.
+ *
+ * Se elige y no se escribe aqui: escribirlo en cada pregunta permitiria que una
+ * tilde distinta creara un criterio aparte en el informe sin que nada lo
+ * advirtiera. Si la pregunta trae un criterio que ya no esta en la lista, se
+ * muestra igual y marcado, para que guardarla no lo borre en silencio.
  */
-function bloqueCriterios(p) {
-  return '<div class="campo" data-criterios><label>Habilidad que mide esta pregunta</label>' +
+function bloqueCriterios(p, criterios) {
+  const nombres = criterios.map((c) => c.nombre);
+  const opcionesCriterio = p.eje && !nombres.includes(p.eje) ? nombres.concat([p.eje]) : nombres;
+
+  if (!opcionesCriterio.length) {
+    return '<div class="campo" data-criterios><label>Criterio que mide esta pregunta</label>' +
+      '<p class="silencio">Agrega criterios arriba para poder elegir uno.</p></div>';
+  }
+
+  return '<div class="campo" data-criterios><label>Criterio que mide esta pregunta</label>' +
     '<div class="fila" style="gap:.4rem">' +
-      HABILIDADES.map((h) =>
+      opcionesCriterio.map((h) =>
         '<label class="alternativa" style="margin:0">' +
           '<input type="radio" name="hab-' + p.id + '" data-criterio="' + esc(h) + '"' +
           (p.eje === h ? ' checked' : '') + '>' +
-          '<span>' + esc(h) + '</span>' +
+          '<span>' + esc(h) + (nombres.includes(h) ? '' : ' <span class="silencio">(fuera de la lista)</span>') + '</span>' +
         '</label>').join('') +
     '</div>' +
     '<p class="silencio" data-resumen-criterios></p></div>';
 }
 
-function seccionPreguntas(preguntas, prueba) {
-  // (criterios se calcula abajo y se pasa a cada tarjeta)
+/**
+ * Como responde el alumno esta pregunta.
+ *
+ * Es lo primero que hay que decidir, porque cambia el resto de la tarjeta: una
+ * pregunta en papel no lleva alternativas ni clave, y ni siquiera se le envia al
+ * navegador del alumno.
+ */
+function bloqueTipo(p) {
+  const opcion = (valor, titulo, detalle) =>
+    '<label class="alternativa" style="margin:0;align-items:flex-start">' +
+      '<input type="radio" name="tipo-' + p.id + '" data-tipo="' + valor + '"' +
+        (p.tipo === valor ? ' checked' : '') + '>' +
+      '<span><strong>' + titulo + '</strong><br>' +
+        '<span class="silencio">' + detalle + '</span></span>' +
+    '</label>';
+
+  return '<div class="campo" data-tipos><label>¿Cómo la responde el estudiante?</label>' +
+    '<div class="rejilla dos">' +
+      opcion('alternativas', 'En pantalla', 'Marca una alternativa. Se corrige sola con la clave.') +
+      opcion('papel', 'En papel', 'La escribe en la hoja impresa. No aparece en pantalla y la corriges tú.') +
+    '</div></div>';
+}
+
+function seccionPreguntas(preguntas, prueba, criterios) {
   const sinClasificar = preguntas.filter((p) => !p.eje).length;
-  const sinClave = preguntas.filter((p) => p.tipo === 'alternativas' && !p.clave).length;
+  const sinClave = preguntas.filter((p) => p.tipo !== 'papel' && !p.clave).length;
+  const enPapel = preguntas.filter((p) => p.tipo === 'papel');
+  const puntajeTotal = preguntas.reduce((s, p) => s + (p.puntaje || 0), 0);
 
   return '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
+      '<span class="silencio">' + puntajeTotal + ' puntos en total</span>' +
       '<button id="q-nueva">Agregar pregunta</button></div>' +
     (sinClasificar || sinClave
       ? '<div class="aviso info">' +
@@ -337,13 +460,18 @@ function seccionPreguntas(preguntas, prueba) {
           (sinClasificar ? sinClasificar + ' pregunta(s) sin criterio: no aparecerán en el desglose del informe.' : '') +
         '</div>'
       : '') +
-    preguntas.map(tarjetaPregunta).join('') +
+    (enPapel.length
+      ? '<div class="aviso info">' + plural(enPapel.length, 'pregunta') + ' se responde(n) <strong>en papel</strong> ' +
+        '(N° ' + enPapel.map((p) => p.numero).join(', ') + '). No aparecen en pantalla: ' +
+        'las corriges tú en la pestaña <strong>Corregir</strong>, cuando los estudiantes hayan entregado.</div>'
+      : '') +
+    preguntas.map((p) => tarjetaPregunta(p, criterios)).join('') +
     (preguntas.length ? '' : '<p class="silencio">Todavía no hay preguntas.</p>') +
     '</div>';
 }
 
-function tarjetaPregunta(p) {
-  const esAlternativas = p.tipo === 'alternativas';
+function tarjetaPregunta(p, criterios) {
+  const enPapel = p.tipo === 'papel';
   const resumen = (p.enunciado || '(sin enunciado)').slice(0, 90);
 
   const cuerpoAlternativas =
@@ -361,9 +489,9 @@ function tarjetaPregunta(p) {
 
   return '<details class="tarjeta" style="margin:.6rem 0" data-pregunta="' + p.id + '">' +
     '<summary><strong>' + p.numero + '.</strong> ' + esc(resumen) +
-      (esAlternativas
-        ? (p.clave ? ' <span class="etiqueta verde">Clave ' + p.clave + '</span>' : ' <span class="etiqueta roja">sin clave</span>')
-        : ' <span class="etiqueta ambar">Desarrollo</span>') +
+      (enPapel
+        ? ' <span class="etiqueta ambar">En papel · ' + plural(p.puntaje, 'punto') + '</span>'
+        : (p.clave ? ' <span class="etiqueta verde">Clave ' + p.clave + '</span>' : ' <span class="etiqueta roja">sin clave</span>')) +
       (p.eje ? ' <span class="etiqueta">' + esc(p.eje) + '</span>' : '') +
     '</summary>' +
 
@@ -372,15 +500,13 @@ function tarjetaPregunta(p) {
       '<div class="campo"><label>Puntaje</label><input data-campo="puntaje" type="number" min="1" value="' + p.puntaje + '"></div>' +
     '</div>' +
 
+    bloqueTipo(p) +
+
     '<div class="campo"><label>Enunciado</label><textarea data-campo="enunciado" rows="2">' + esc(p.enunciado) + '</textarea></div>' +
     '<div class="campo"><label>Fragmento citado dentro de la pregunta (opcional)</label>' +
       '<textarea data-campo="cita" rows="2">' + esc(p.cita) + '</textarea></div>' +
 
-    // Un solo campo: el criterio que mide la pregunta. Es lo que agrupa el
-    // informe. Se escribe libre porque cada prueba usa su propio conjunto
-    // (los ejes del DIA en unas, "Extraccion de informacion" en otras), con
-    // sugerencias de los ya usados para no tipear dos veces lo mismo.
-    bloqueCriterios(p) +
+    bloqueCriterios(p, criterios) +
 
     '<details style="margin-bottom:.8rem"><summary class="silencio">Datos adicionales (opcionales)</summary>' +
       '<div class="rejilla dos" style="margin-top:.6rem">' +
@@ -391,7 +517,10 @@ function tarjetaPregunta(p) {
       '</div>' +
     '</details>' +
 
-    '<div data-cuerpo>' + cuerpoAlternativas + '</div>' +
+    '<div data-cuerpo' + (enPapel ? ' hidden' : '') + '>' + cuerpoAlternativas + '</div>' +
+    '<div data-aviso-papel class="aviso info"' + (enPapel ? '' : ' hidden') + '>' +
+      'Esta pregunta no aparece en pantalla. El estudiante la responde en la hoja impresa ' +
+      'y tú anotas su puntaje (de 0 a ' + p.puntaje + ') en la pestaña <strong>Corregir</strong>.</div>' +
 
     '<div class="fila fin" style="margin-top:.8rem">' +
       '<button class="peligro chico" data-borrar-pregunta="' + p.id + '">Eliminar</button>' +
@@ -411,8 +540,17 @@ function resumir(caja) {
 function leerPregunta(caja) {
   const cuerpo = {};
   caja.querySelectorAll('[data-campo]').forEach((c) => { cuerpo[c.dataset.campo] = c.value; });
+
   const marcada = caja.querySelector('[data-criterio]:checked');
   cuerpo.eje = marcada ? marcada.dataset.criterio : '';
+
+  const tipo = caja.querySelector('[data-tipo]:checked');
+  cuerpo.tipo = tipo ? tipo.dataset.tipo : 'alternativas';
+
+  // Una pregunta en papel no lleva alternativas ni clave. Enviarlas igual
+  // dejaria guardado un texto que despues reaparece si vuelve a ser de pantalla,
+  // pero sobre todo haria creer que tiene clave cuando no la tiene.
+  if (cuerpo.tipo === 'papel') return cuerpo;
 
   cuerpo.opciones = [...caja.querySelectorAll('[data-opcion]')]
     .map((c) => ({ letra: c.dataset.opcion, contenido: c.value }));
@@ -435,6 +573,10 @@ async function agregarPregunta(prueba, numero, anterior = null) {
     cuerpo.oa = anterior.oa;
     cuerpo.eje = anterior.eje;
     cuerpo.indicador = anterior.indicador;
+    // Tambien el tipo y el puntaje: las preguntas en papel suelen ir juntas al
+    // final de la prueba, y volver a marcarlo en cada una es puro roce.
+    cuerpo.tipo = anterior.tipo;
+    cuerpo.puntaje = anterior.puntaje;
   }
   const { id } = await api('/api/admin/pruebas/' + prueba.id + '/preguntas', { cuerpo });
   pedirFoco('pregunta', id, true);
@@ -447,6 +589,22 @@ function conectarPreguntas(prueba, preguntas) {
   document.querySelectorAll('[data-criterios]').forEach((caja) => {
     caja.querySelectorAll('[data-criterio]').forEach((c) => c.addEventListener('change', () => resumir(caja)));
     resumir(caja);
+  });
+
+  // Cambiar el tipo reordena la tarjeta al instante: sin esto, marcar «en papel»
+  // dejaria las cinco alternativas a la vista y no quedaria claro que se ignoran.
+  document.querySelectorAll('[data-pregunta]').forEach((caja) => {
+    const cuerpo = caja.querySelector('[data-cuerpo]');
+    const aviso = caja.querySelector('[data-aviso-papel]');
+    if (!cuerpo || !aviso) return;
+
+    caja.querySelectorAll('[data-tipo]').forEach((radio) => {
+      radio.addEventListener('change', () => {
+        const enPapel = radio.dataset.tipo === 'papel' && radio.checked;
+        cuerpo.hidden = enPapel;
+        aviso.hidden = !enPapel;
+      });
+    });
   });
 
   document.querySelectorAll('[data-guardar-pregunta]').forEach((boton) => {
@@ -475,6 +633,139 @@ function conectarPreguntas(prueba, preguntas) {
       if (!confirm('¿Eliminar esta pregunta y las respuestas ya registradas en ella?')) return;
       await api('/api/admin/preguntas/' + boton.dataset.borrarPregunta, { metodo: 'DELETE' });
       recargar();
+    });
+  });
+}
+
+/* ================================================================ CORREGIR */
+
+/**
+ * Correccion de las preguntas que se responden en papel.
+ *
+ * Es una grilla —una fila por estudiante, una columna por pregunta— y no una
+ * ficha por estudiante: la profesora corrige con la pila de hojas al lado y va
+ * anotando; obligarla a entrar y salir de doscientas fichas haria la tarea
+ * inviable. Cada casilla se guarda sola al cambiarla.
+ */
+export async function vistaCorregir(nodo, id) {
+  const curso = sessionStorage.getItem('curso-informe') || '';
+  const r = await api('/api/admin/pruebas/' + id + '/correccion' + (curso ? '?curso=' + encodeURIComponent(curso) : ''));
+
+  if (!r.preguntas.length) {
+    nodo.innerHTML = cabecera(r.prueba, 'corregir') +
+      '<div class="tarjeta"><p>Esta prueba no tiene preguntas en papel.</p>' +
+      '<p class="silencio">En el editor, cada pregunta puede responderse <strong>en pantalla</strong> ' +
+      '(se corrige sola) o <strong>en papel</strong> (la corriges aquí).</p></div>';
+    return;
+  }
+
+  if (!r.alumnos.length) {
+    nodo.innerHTML = cabecera(r.prueba, 'corregir') +
+      '<div class="tarjeta"><p>Todavía no hay pruebas entregadas' + (curso ? ' en ' + esc(curso) : '') + '.</p>' +
+      '<p class="silencio">Las preguntas en papel se corrigen después de que el estudiante envía la parte en pantalla.</p></div>';
+    return;
+  }
+
+  const total = r.alumnos.length * r.preguntas.length;
+
+  nodo.innerHTML = cabecera(r.prueba, 'corregir') +
+    '<div id="aviso" class="aviso"></div>' +
+
+    '<div class="tarjeta"><h2>Preguntas en papel</h2>' +
+      '<p class="silencio">Anota el puntaje que obtuvo cada estudiante. ' +
+        'El botón <strong>✓</strong> pone el puntaje completo y <strong>✗</strong> pone cero; ' +
+        'si la respuesta quedó a medias, escribe el puntaje directamente en la casilla. ' +
+        'Cada cambio se guarda solo y la nota se recalcula al momento.</p>' +
+      '<table><thead><tr><th>N°</th><th>Pregunta</th><th>Criterio</th><th>Puntaje</th></tr></thead><tbody>' +
+        r.preguntas.map((p) =>
+          '<tr><td><strong>' + p.numero + '</strong></td>' +
+            '<td>' + esc((p.enunciado || '(sin enunciado)').slice(0, 120)) + '</td>' +
+            '<td class="silencio">' + esc(p.eje || '—') + '</td>' +
+            '<td>' + p.puntaje + '</td></tr>').join('') +
+      '</tbody></table></div>' +
+
+    '<div class="fila no-imprimir">' +
+      '<div style="min-width:200px"><label>Curso</label><select id="filtro">' +
+        '<option value="">Todos los cursos</option>' +
+        r.cursos_disponibles.map((c) => '<option value="' + esc(c) + '"' + (c === curso ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
+      '</select></div>' +
+      '<div class="crece"></div>' +
+      '<div id="avance" class="etiqueta"></div>' +
+    '</div>' +
+
+    '<div class="tarjeta tabla-scroll">' +
+      '<table class="corregir"><thead><tr>' +
+        '<th>Estudiante</th><th>Curso</th>' +
+        r.preguntas.map((p) => '<th>N° ' + p.numero + ' <span class="silencio">/ ' + p.puntaje + '</span></th>').join('') +
+      '</tr></thead><tbody>' +
+      r.alumnos.map((a) =>
+        '<tr data-intento="' + a.intento_id + '">' +
+          '<td>' + esc(a.nombre) + '</td><td class="silencio">' + esc(a.curso) + '</td>' +
+          r.preguntas.map((p) => celdaCorreccion(a, p)).join('') +
+        '</tr>').join('') +
+      '</tbody></table></div>';
+
+  const refrescarAvance = () => {
+    const hechas = $$('[data-puntaje]').filter((c) => c.value !== '').length;
+    const nodoAvance = $('#avance');
+    nodoAvance.textContent = 'Corregidas ' + hechas + ' de ' + total;
+    nodoAvance.className = 'etiqueta' + (hechas === total ? ' verde' : '');
+  };
+
+  $('#filtro').addEventListener('change', (e) => {
+    sessionStorage.setItem('curso-informe', e.target.value);
+    recargar();
+  });
+
+  conectarCorreccion(refrescarAvance);
+  refrescarAvance();
+}
+
+function celdaCorreccion(alumno, pregunta) {
+  const valor = alumno.puntajes[pregunta.id];
+  const anotado = valor !== undefined && valor !== null;
+
+  return '<td class="celda-correccion' + (anotado ? '' : ' pendiente') + '">' +
+    '<div class="fila" style="gap:.25rem;flex-wrap:nowrap">' +
+      '<button class="chico neutro" data-marcar="' + pregunta.puntaje + '" title="Correcta: ' + pregunta.puntaje + ' puntos">✓</button>' +
+      '<button class="chico neutro" data-marcar="0" title="Incorrecta: cero puntos">✗</button>' +
+      '<input data-puntaje type="number" min="0" max="' + pregunta.puntaje + '" step="0.5" ' +
+        'data-pregunta="' + pregunta.id + '" data-max="' + pregunta.puntaje + '" ' +
+        'value="' + (anotado ? valor : '') + '" placeholder="—">' +
+    '</div></td>';
+}
+
+function conectarCorreccion(refrescarAvance) {
+  const guardar = async (campo) => {
+    const celda = campo.closest('td');
+    const intentoId = campo.closest('[data-intento]').dataset.intento;
+    const valor = campo.value.trim();
+
+    celda.classList.add('guardando');
+    try {
+      await api('/api/admin/intentos/' + intentoId + '/correccion', {
+        metodo: 'PUT',
+        cuerpo: { pregunta_id: Number(campo.dataset.pregunta), puntaje: valor === '' ? null : valor },
+      });
+      celda.classList.remove('guardando', 'error');
+      celda.classList.toggle('pendiente', valor === '');
+      refrescarAvance();
+    } catch (error) {
+      celda.classList.remove('guardando');
+      celda.classList.add('error');
+      mostrarAviso($('#aviso'), 'No se pudo guardar: ' + error.message);
+    }
+  };
+
+  $$('[data-puntaje]').forEach((campo) => {
+    campo.addEventListener('change', () => guardar(campo));
+  });
+
+  $$('[data-marcar]').forEach((boton) => {
+    boton.addEventListener('click', () => {
+      const campo = boton.closest('.fila').querySelector('[data-puntaje]');
+      campo.value = boton.dataset.marcar;
+      guardar(campo);
     });
   });
 }
@@ -580,6 +871,17 @@ export async function vistaInforme(nodo, id) {
       '<button onclick="window.print()">Imprimir</button>' +
     '</div>' +
 
+
+    // Con preguntas en papel sin corregir, los puntajes estan incompletos y las
+    // notas salen mas bajas de lo que corresponde. Decirlo arriba y fuerte evita
+    // que alguien traspase al libro de clases un informe a medio hacer.
+    (r.pendientes_correccion
+      ? '<div class="aviso error"><strong>Faltan correcciones.</strong> ' +
+        'Hay ' + plural(r.pendientes_correccion, 'respuesta') + ' en papel sin corregir. ' +
+        'Mientras tanto esos puntos no suman, así que los porcentajes y las notas de abajo ' +
+        'están por debajo de lo que van a quedar. ' +
+        '<a href="#prueba/' + id + '/corregir">Ir a corregir</a>.</div>'
+      : '') +
 
     '<div class="rejilla tres">' +
       tarjetaDato('Estudiantes evaluados', r.total_alumnos, r.en_curso ? '<span class="silencio">' + r.en_curso + ' aún rindiendo</span>' : '') +
@@ -717,20 +1019,31 @@ function seccionPorCurso(r) {
 }
 
 function seccionTabla1(r) {
+  const conPapel = r.preguntas.some((p) => p.tipo === 'papel');
+
   return '<div class="tarjeta tabla-scroll"><h2>4. Resultados por pregunta</h2>' +
-    '<p class="silencio">La alternativa correcta va destacada. Un distractor con alto porcentaje señala un error de comprensión que vale la pena indagar.</p>' +
+    '<p class="silencio">La alternativa correcta va destacada. Un distractor con alto porcentaje señala un error de comprensión que vale la pena indagar.' +
+      (conPapel
+        ? ' En las preguntas <strong>en papel</strong> no hay alternativas: se muestra cuántas quedaron ' +
+          'correctas (C), con puntaje parcial (P), incorrectas (I) y sin corregir (N).'
+        : '') + '</p>' +
     '<table><thead><tr>' +
       '<th>N°</th><th>Criterio</th><th>% respuestas</th><th>Logro</th>' +
     '</tr></thead><tbody>' +
     r.preguntas.map((p) =>
-      '<tr><td><strong>' + p.numero + '</strong></td>' +
+      '<tr><td><strong>' + p.numero + '</strong>' +
+          (p.tipo === 'papel' ? '<br><span class="etiqueta ambar">papel</span>' : '') + '</td>' +
         '<td class="silencio">' + esc(p.eje) + '</td>' +
         '<td style="white-space:nowrap">' +
           p.distribucion.map((d) =>
             '<div' + (d.correcta ? ' style="font-weight:700"' : (d.porcentaje >= 30 && !d.correcta ? ' style="color:var(--rojo)"' : '')) + '>' +
               d.letra + ': ' + d.porcentaje + '%</div>').join('') +
         '</td>' +
-        '<td>' + barra(p.logro) + ' ' + p.logro + '%</td>' +
+        // Una pregunta en papel que nadie ha corregido todavia no tiene logro:
+        // mostrar 0 % la haria ver como el peor resultado de la prueba.
+        '<td>' + (p.tipo === 'papel' && !p.corregidas
+          ? '<span class="silencio">sin corregir</span>'
+          : barra(p.logro) + ' ' + p.logro + '%') + '</td>' +
       '</tr>').join('') +
     '</tbody></table></div>';
 }
@@ -852,6 +1165,12 @@ export async function vistaInformeAlumno(nodo, intentoId) {
     '<h1>' + esc(r.intento.nombre) + '</h1>' +
     '<p class="silencio">' + esc(r.prueba.titulo) + ' · ' + esc(r.intento.curso) + ' · entregada el ' + fecha(r.intento.enviado_en) + '</p>' +
 
+    (r.pendientes_correccion
+      ? '<div class="aviso error"><strong>Nota provisoria.</strong> Le falta(n) ' +
+        plural(r.pendientes_correccion, 'pregunta') + ' en papel por corregir, así que esos puntos ' +
+        'todavía no suman. <a href="#prueba/' + r.prueba.id + '/corregir">Ir a corregir</a>.</div>'
+      : '') +
+
     '<div class="rejilla tres">' +
       (r.escala_notas.activa
         ? tarjetaDato('Nota', '<span class="nota ' + colorNota(r.nota) + '">' + formatoNota(r.nota) + '</span>',
@@ -870,19 +1189,24 @@ export async function vistaInformeAlumno(nodo, intentoId) {
     '</tbody></table></div>' +
 
     '<div class="tarjeta tabla-scroll"><h2>Detalle pregunta a pregunta</h2>' +
-      '<table><thead><tr><th>N°</th><th>Eje</th><th>Indicador</th><th>Respondió</th><th>Correcta</th><th></th></tr></thead><tbody>' +
-      r.preguntas.map((p) =>
-        '<tr><td><strong>' + p.numero + '</strong></td>' +
+      '<table><thead><tr><th>N°</th><th>Criterio</th><th>Respondió</th><th>Correcta</th><th>Puntaje</th><th></th></tr></thead><tbody>' +
+      r.preguntas.map((p) => {
+        const enPapel = p.tipo === 'papel';
+        const marca = !enPapel || p.corregida
+          ? (p.correcta ? '<span class="etiqueta verde">✓</span>' : '<span class="etiqueta roja">✗</span>')
+          : '<span class="etiqueta ambar">sin corregir</span>';
+
+        return '<tr><td><strong>' + p.numero + '</strong>' +
+            (enPapel ? ' <span class="etiqueta ambar">papel</span>' : '') + '</td>' +
           '<td class="silencio">' + esc(p.eje) + '</td>' +
-            '<td>' + (p.tipo === 'alternativas'
-            ? (p.respondio || '<span class="silencio">no respondió</span>')
-            : (p.codigo_rubrica === null || p.codigo_rubrica === undefined
-                ? '<span class="etiqueta ambar">sin corregir</span>'
-                : 'Código ' + p.codigo_rubrica)) + '</td>' +
-          '<td>' + (p.tipo === 'alternativas' ? esc(p.clave || '') : '—') + '</td>' +
-          '<td>' + (p.correcta ? '<span class="etiqueta verde">✓</span>' : '<span class="etiqueta roja">✗</span>') + '</td>' +
-        '</tr>' +
-        '').join('') +
+          '<td>' + (enPapel
+            ? '<span class="silencio">en la hoja impresa</span>'
+            : (p.respondio || '<span class="silencio">no respondió</span>')) + '</td>' +
+          '<td>' + (enPapel ? '—' : esc(p.clave || '')) + '</td>' +
+          '<td class="silencio">' + p.puntaje + ' / ' + p.puntaje_max + '</td>' +
+          '<td>' + marca + '</td>' +
+        '</tr>';
+      }).join('') +
       '</tbody></table></div>';
 }
 
@@ -894,7 +1218,7 @@ export async function vistaInformeAlumno(nodo, intentoId) {
  */
 export async function vistaPrevia(nodo, id) {
   const r = await api('/api/admin/pruebas/' + id + '/vista-previa');
-  const sinClave = r.preguntas.filter((p) => !p.clave).length;
+  const sinClave = r.preguntas.filter((p) => p.tipo !== 'papel' && !p.clave).length;
   const sinCriterio = r.preguntas.filter((p) => !p.eje).length;
 
   nodo.innerHTML = cabecera(r.prueba, 'vista') +
@@ -918,22 +1242,28 @@ export async function vistaPrevia(nodo, id) {
 }
 
 function dibujarPreguntaPrevia(p) {
-  const alternativas = (p.opciones || []).map((o) => {
-    const correcta = o.letra === p.clave;
-    return '<div class="alternativa' + (correcta ? ' elegida' : '') + '" style="cursor:default">' +
-      '<span class="letra">' + o.letra + '.</span>' +
-      '<span>' + esc(o.contenido) + '</span>' +
-      (correcta ? '<span class="etiqueta verde" style="margin-left:auto">correcta</span>' : '') +
-    '</div>';
-  }).join('');
+  const enPapel = p.tipo === 'papel';
+
+  const alternativas = enPapel
+    ? '<div class="aviso info" style="margin:.6rem 0 0">Se responde en la hoja impresa. ' +
+      'No aparece en pantalla; vale ' + plural(p.puntaje, 'punto') + ' y la corriges tú.</div>'
+    : (p.opciones || []).map((o) => {
+        const correcta = o.letra === p.clave;
+        return '<div class="alternativa' + (correcta ? ' elegida' : '') + '" style="cursor:default">' +
+          '<span class="letra">' + o.letra + '.</span>' +
+          '<span>' + esc(o.contenido) + '</span>' +
+          (correcta ? '<span class="etiqueta verde" style="margin-left:auto">correcta</span>' : '') +
+        '</div>';
+      }).join('');
 
   return '<div class="pregunta">' +
     '<p><span class="numero">' + p.numero + '.</span> ' + esc(p.enunciado) + '</p>' +
     (p.cita ? '<div class="cita">' + esc(p.cita) + '</div>' : '') +
     alternativas +
     '<p class="silencio" style="margin:.6rem 0 0">' +
+      (enPapel ? '<span class="etiqueta ambar">en papel</span> ' : '') +
       (p.eje ? '<span class="etiqueta">' + esc(p.eje) + '</span>' : '<span class="etiqueta roja">sin criterio</span>') +
-      (p.clave ? '' : ' <span class="etiqueta roja">sin clave</span>') +
+      (enPapel || p.clave ? '' : ' <span class="etiqueta roja">sin clave</span>') +
     '</p>' +
   '</div>';
 }
@@ -998,16 +1328,23 @@ function hojaDeAlumno(inf, e, indice) {
         : '<p class="silencio">Las preguntas de esta prueba no tienen criterio asignado.</p>') +
 
       '<h3 style="margin-top:1.2rem">Respuestas</h3>' +
-      '<p class="silencio">' + correctas + ' correctas de ' + inf.preguntas.length + '.</p>' +
+      '<p class="silencio">' + correctas + ' correctas de ' + inf.preguntas.length + '.' +
+        (inf.pendientes_correccion
+          ? ' <strong>Faltan ' + plural(inf.pendientes_correccion, 'pregunta') + ' en papel por corregir.</strong>'
+          : '') + '</p>' +
       '<div class="navegador">' +
-        inf.preguntas.map((p) =>
-          '<span class="marca-respuesta ' + (p.correcta ? 'ok' : (p.respondio ? 'mal' : 'vacia')) + '" ' +
-            'title="' + esc(p.eje || '') + '">' + p.numero + '</span>').join('') +
+        inf.preguntas.map((p) => {
+          const sinCorregir = p.tipo === 'papel' && !p.corregida;
+          const clase = sinCorregir ? 'vacia' : (p.correcta ? 'ok' : (p.tipo === 'papel' || p.respondio ? 'mal' : 'vacia'));
+          return '<span class="marca-respuesta ' + clase + '" ' +
+            'title="' + esc(p.eje || '') + (p.tipo === 'papel' ? ' · en papel' : '') + '">' +
+            p.numero + '</span>';
+        }).join('') +
       '</div>' +
       '<p class="silencio" style="margin-top:.6rem;font-size:.8rem">' +
         '<span class="marca-respuesta ok">■</span> correcta · ' +
         '<span class="marca-respuesta mal">■</span> incorrecta · ' +
-        '<span class="marca-respuesta vacia">■</span> sin responder</p>' +
+        '<span class="marca-respuesta vacia">■</span> sin responder o sin corregir</p>' +
     '</div>' +
   '</section>';
 }

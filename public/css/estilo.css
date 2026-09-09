@@ -247,6 +247,61 @@ tbody tr:hover { background: #fafbfd; }
 .celda-nota.aprueba { background: var(--verde-claro); border-color: #c4e3d2; color: var(--verde); }
 .celda-nota.aprueba b { color: var(--verde); }
 
+/* --------------------------------------------------------------- criterios */
+
+/* Ficha de un criterio, con su boton de quitar pegado al nombre. */
+.criterio {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .25rem .35rem .25rem .7rem;
+  border: 1px solid #cfe0f2;
+  border-radius: 99px;
+  background: var(--azul-claro);
+  color: var(--azul);
+  font-size: .85rem;
+  font-weight: 600;
+}
+/* Un criterio que ya no esta en la lista pero que alguna pregunta conserva. */
+.criterio.huerfano {
+  background: #eef1f5;
+  border-color: var(--borde);
+  color: var(--tinta-suave);
+  padding-right: .7rem;
+}
+.criterio .quitar {
+  padding: 0;
+  width: 1.35rem;
+  height: 1.35rem;
+  line-height: 1;
+  border-radius: 99px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  opacity: .55;
+}
+.criterio .quitar:hover { opacity: 1; background: #fff; filter: none; }
+
+/* -------------------------------------------------------------- correccion */
+
+/* Grilla de correccion: una fila por estudiante, una columna por pregunta. */
+table.corregir th, table.corregir td { white-space: nowrap; vertical-align: middle; }
+table.corregir th:first-child, table.corregir td:first-child { white-space: normal; min-width: 190px; }
+
+.celda-correccion input {
+  width: 4.2rem;
+  padding: .3rem .4rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.celda-correccion button { padding: .3rem .45rem; line-height: 1; }
+/* Sin puntaje anotado todavia: se ve de un vistazo lo que falta por corregir. */
+.celda-correccion.pendiente input { background: var(--ambar-claro); border-color: #eeddba; }
+.celda-correccion.guardando input { opacity: .5; }
+.celda-correccion.error input { background: var(--rojo-claro); border-color: var(--rojo); }
+
 /* La nota, donde aparece, es lo primero que se busca en la pagina. */
 .nota { font-variant-numeric: tabular-nums; font-weight: 700; }
 .nota.roja { color: var(--rojo); }

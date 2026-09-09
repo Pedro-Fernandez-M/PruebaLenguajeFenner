@@ -52,11 +52,11 @@ npm run reset
 
 ## Cómo se modela una prueba
 
-Una **prueba** es una lista de **preguntas de alternativas**, numeradas de corrido.
-Cada pregunta declara **una habilidad**, que es lo que agrupa el informe:
+Una **prueba** es una lista de preguntas numeradas de corrido. Cada pregunta
+declara **un criterio**, que es lo que agrupa el informe:
 
 ```
-Preguntas 1, 2, 3…  →  Cada una con su habilidad  →  Informe por habilidad
+Preguntas 1, 2, 3…  →  Cada una con su criterio  →  Informe por criterio
 ```
 
 **Los textos no van en la plataforma**: se entregan impresos a los estudiantes, y
@@ -65,9 +65,47 @@ en pantalla solo aparecen las preguntas.
 Las alternativas van de **A a E**; las que se dejen vacías no se muestran, así que
 una prueba de cuatro opciones y otra de cinco conviven sin configurar nada.
 
-Las habilidades son tres y cada pregunta mide **exactamente una**: *Localizar*,
-*Interpretar y relacionar* y *Reflexionar*. El N° de OA y el indicador quedan como
-datos opcionales.
+### Los criterios
+
+Cada pregunta declara **un criterio**, y la lista la arma cada docente: se
+escriben, se asignan con un clic y se quitan con una ×. Una base nueva parte con
+los tres ejes del DIA de Lectura (*Localizar*, *Interpretar y relacionar* y
+*Reflexionar*), pero son un punto de partida, no una lista cerrada.
+
+Se eligen de una lista en vez de escribirse en cada pregunta porque una tilde
+distinta crearía un criterio gemelo y el informe repartiría las preguntas entre
+los dos sin avisar. Por lo mismo, al crear uno la comparación ignora mayúsculas
+**y tildes**: «Extracción de información» y «extraccion de informacion» chocan.
+
+Las preguntas guardan el **nombre** del criterio, no una referencia. Así, quitar
+uno de la lista no borra la clasificación: las preguntas que ya lo tenían lo
+conservan, siguen apareciendo en el informe y el editor las muestra en gris como
+«fuera de la lista», para que guardarlas no lo pierda en silencio.
+
+### Dos formas de responder
+
+Cada pregunta se responde **en pantalla** o **en papel**:
+
+| | En pantalla | En papel |
+|---|---|---|
+| El estudiante | marca una alternativa | la escribe en la hoja impresa |
+| Aparece en el navegador | sí | **no** |
+| Se corrige | sola, contra la clave | la docente anota el puntaje |
+
+Las preguntas en papel conservan su número, así que en pantalla puede verse
+1, 2, 4, 5… y eso es correcto: los números tienen que calzar con el cuadernillo
+que el estudiante tiene en la mesa.
+
+Se corrigen en la pestaña **Corregir**, una grilla con una fila por estudiante y
+una columna por pregunta: **✓** pone el puntaje completo, **✗** pone cero, y para
+una respuesta a medias se escribe el puntaje. Cada casilla se guarda sola y la
+nota se recalcula al momento.
+
+Mientras queden preguntas en papel sin corregir, esos puntos no suman: el informe
+lo avisa arriba y en rojo, y el estudiante no ve un resultado provisorio sino un
+«tu profesora todavía tiene que revisar la parte en papel».
+
+El N° de OA y el indicador quedan como datos opcionales.
 
 Cada docente tiene su cuenta y ve **solo sus propias pruebas**: abrir la de una
 colega devuelve un error, no la prueba con sus claves. La nómina, en cambio, es
@@ -113,19 +151,24 @@ previa del editor y la nota del informe no puedan discrepar.
 2. **Imprimir códigos.** Talones recortables agrupados por curso, uno por
    estudiante. Se puede imprimir un curso o todos; al imprimir todos, cada curso
    empieza en una hoja nueva. Solo salen los estudiantes vigentes.
-3. **Crear la prueba.** *Nueva prueba*, y luego cargar los textos y las preguntas
-   en el editor. También se puede *Duplicar* una prueba anterior para partir de ella.
-4. **Escribir cada pregunta** con sus alternativas, marcar la correcta y elegir el
-   criterio que evalúa. El botón *Guardar y agregar otra* encadena la siguiente
-   heredando el texto y el criterio de la anterior.
-5. **Revisar con *Ver la prueba***, que la muestra tal como la verá el estudiante,
+3. **Crear la prueba.** *Nueva prueba*, y luego escribir las preguntas en el
+   editor. También se puede *Duplicar* una prueba anterior para partir de ella.
+4. **Armar los criterios**, en el panel del editor: se escriben, se asignan con un
+   clic y se quitan con una ×.
+5. **Escribir cada pregunta**: elegir si se responde en pantalla o en papel, poner
+   su puntaje, sus alternativas y la correcta, y marcar el criterio que evalúa. El
+   botón *Guardar y agregar otra* encadena la siguiente heredando criterio, tipo y
+   puntaje de la anterior.
+6. **Revisar con *Ver la prueba***, que la muestra tal como la verá el estudiante,
    con la alternativa correcta destacada.
-6. **Publicar.** En los ajustes, estado → *publicada*. Marca los cursos que pueden
+7. **Publicar.** En los ajustes, estado → *publicada*. Marca los cursos que pueden
    rendirla y fija una duración en minutos.
-7. **Monitor.** Durante la prueba, ver quién está rindiendo y cuánto lleva respondido.
+8. **Monitor.** Durante la prueba, ver quién está rindiendo y cuánto lleva respondido.
    Permite reabrir el intento de un alumno al que se le cortó la conexión.
-8. **Informe.** Las secciones del informe del DIA más la de calificación,
-   filtrable por curso, imprimible y descargable en CSV.
+9. **Corregir.** Si la prueba tiene preguntas en papel, anotar el puntaje de cada
+   estudiante en la grilla. Solo aparece lo que falta por revisar.
+10. **Informe.** Las secciones del informe del DIA más la de calificación,
+    filtrable por curso, imprimible y descargable en CSV.
 
 ---
 
@@ -134,11 +177,13 @@ previa del editor y la nota del informe no puedan discrepar.
 1. **Resultados según niveles de logro** — distribución de estudiantes en I / II / III,
    con gráfico de torta.
 2. **Resultados según eje de habilidad** — porcentaje promedio de respuestas correctas
-   en cada habilidad, con gráfico de barras.
+   en cada criterio, con gráfico de barras.
 3. **Resultados por curso** — cuando la prueba la rinde más de un curso: logro,
    niveles y habilidades de cada uno, lado a lado.
 4. **Resultados por pregunta** — el **porcentaje que eligió cada alternativa**,
    incluida la opción *N* (no responde). Un distractor sobre 30 % se marca en rojo.
+   En las preguntas en papel no hay alternativas: se muestra cuántas quedaron
+   correctas, con puntaje parcial, incorrectas y **sin corregir**.
 5. **Resultados por estudiante** — puntaje, porcentaje, **nota** y nivel.
 6. **Resultados según calificación** — promedio del curso, cuántos aprueban y la
    distribución de notas por tramo, con gráfico de barras y de torta.
@@ -157,14 +202,13 @@ sin comillas, para que Excel la tome como número y no como texto.
 
 ## Qué trae cargado el sembrado
 
-- **DIA Lectura II medio — Monitoreo Intermedio 2026.** La estructura oficial completa:
-  7 textos, 38 preguntas con su OA, tipo de texto, eje, indicador y **la clave oficial**,
-  más la pauta de corrección de la pregunta 27 transcrita textualmente. Los enunciados
-  y las alternativas quedan vacíos, porque la ficha técnica no los publica: se copian
-  del cuadernillo impreso.
-- **Prueba de demostración.** Un texto corto con preguntas de alternativas,
-  publicada y lista para probar el circuito completo.
+- **La cuenta docente** y sus tres criterios iniciales.
+- **Prueba de demostración**, publicada y lista para recorrer el circuito completo:
+  cinco preguntas de alternativas en pantalla y una en papel de 4 puntos, que
+  permite probar la corrección a mano y ver cómo cambia la nota.
 - **Tres alumnos de demostración** con sus códigos.
+
+La nómina real se carga aparte; el sembrado no la toca.
 
 ---
 
@@ -194,7 +238,8 @@ api/index.js             punto de entrada para Vercel
 vercel.json              configuracion del despliegue
 scripts/
   seed.mjs               carga inicial
-  datos-dia.mjs          estructura oficial del DIA transcrita
+  datos-dia.mjs          estructura oficial del DIA transcrita (referencia,
+                         ya no se carga: dependia de la tabla de textos)
   estado.mjs             qué hay cargado en la base, sin tocarla
   generar-esquemas.mjs   regenera esquemas.js desde los .sql
   probar-notas.mjs       comprueba el cálculo de la nota
