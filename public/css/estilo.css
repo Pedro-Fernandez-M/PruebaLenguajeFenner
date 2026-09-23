@@ -286,9 +286,19 @@ tbody tr:hover { background: #fafbfd; }
 
 /* -------------------------------------------------------------- correccion */
 
-/* Grilla de correccion: una fila por estudiante, una columna por pregunta. */
-table.corregir th, table.corregir td { white-space: nowrap; vertical-align: middle; }
-table.corregir th:first-child, table.corregir td:first-child { white-space: normal; min-width: 190px; }
+/* Tabla de correccion: una fila por estudiante dentro del bloque de cada pregunta. */
+table.corregir th, table.corregir td { white-space: nowrap; vertical-align: top; }
+table.corregir th:first-child, table.corregir td:first-child { white-space: normal; min-width: 180px; }
+
+/* Lo que escribio el estudiante. Se respetan sus saltos de linea y se le da
+   ancho de sobra: es texto para leer, no un dato que quepa en una celda. */
+.respuesta-escrita {
+  white-space: pre-wrap;
+  min-width: 320px;
+  max-width: 640px;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.5;
+}
 
 .celda-correccion input {
   width: 4.2rem;

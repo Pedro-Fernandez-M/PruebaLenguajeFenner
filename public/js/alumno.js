@@ -108,7 +108,7 @@ async function abrirIntento(intentoId) {
   examen = await api('/api/alumno/intentos/' + intentoId);
   respuestas = new Map();
   for (const r of examen.respuestas) {
-    respuestas.set(r.pregunta_id, { alternativa: r.alternativa });
+    respuestas.set(r.pregunta_id, { alternativa: r.alternativa, respuesta_texto: r.respuesta_texto || '' });
   }
 
   $('#examen-titulo').textContent = examen.prueba.titulo;
@@ -133,7 +133,14 @@ function pintarExamen() {
 
 function dibujarPregunta(p) {
   const guardada = respuestas.get(p.id) || {};
-  const cuerpo = (p.opciones || []).map((o) => {
+
+  // Dos formas de responder en pantalla: marcar una alternativa, o redactar.
+  // Las preguntas en papel no llegan hasta aqui: el servidor no se las envia.
+  const cuerpo = p.tipo === 'escrita'
+    ? '<textarea data-texto rows="5" placeholder="Escribe aquí tu respuesta">' +
+        esc(guardada.respuesta_texto || '') + '</textarea>' +
+      '<p class="silencio" style="margin:.4rem 0 0">Se guarda sola mientras escribes.</p>'
+    : (p.opciones || []).map((o) => {
         const elegida = guardada.alternativa === o.letra;
         return '<label class="alternativa' + (elegida ? ' elegida' : '') + '">' +
           '<input type="radio" name="p' + p.id + '" value="' + o.letra + '"' + (elegida ? ' checked' : '') + '>' +
@@ -162,6 +169,29 @@ function conectarPregunta(nodo) {
     });
   });
 
+  const area = nodo.querySelector('[data-texto]');
+  if (!area) return;
+
+  // El texto se guarda con un retardo: enviar en cada tecla serian cientos de
+  // peticiones por alumno. Lo pendiente se fuerza antes de enviar la prueba.
+  area.addEventListener('input', () => {
+    respuestas.set(id, { respuesta_texto: area.value });
+    actualizarAvance();
+
+    clearTimeout(pendientesGuardado.get(id));
+    pendientesGuardado.set(id, setTimeout(() => {
+      pendientesGuardado.delete(id);
+      guardar(id);
+    }, 1200));
+  });
+
+  // Al salir del campo se guarda de inmediato, sin esperar el retardo.
+  area.addEventListener('blur', () => {
+    if (!pendientesGuardado.has(id)) return;
+    clearTimeout(pendientesGuardado.get(id));
+    pendientesGuardado.delete(id);
+    guardar(id);
+  });
 }
 
 async function guardar(preguntaId) {
@@ -169,7 +199,11 @@ async function guardar(preguntaId) {
   const valor = respuestas.get(preguntaId) || {};
   try {
     await api('/api/alumno/intentos/' + examen.intento.id + '/respuesta', {
-      cuerpo: { pregunta_id: preguntaId, alternativa: valor.alternativa || null },
+      cuerpo: {
+        pregunta_id: preguntaId,
+        alternativa: valor.alternativa || null,
+        respuesta_texto: valor.respuesta_texto || '',
+      },
     });
     limpiarAviso($('#aviso-examen'));
   } catch (error) {
@@ -181,6 +215,7 @@ async function guardar(preguntaId) {
 function respondida(p) {
   const r = respuestas.get(p.id);
   if (!r) return false;
+  if (p.tipo === 'escrita') return String(r.respuesta_texto || '').trim().length > 0;
   return !!r.alternativa;
 }
 

@@ -491,16 +491,29 @@ function bloqueTipo(p) {
     '</label>';
 
   return '<div class="campo" data-tipos><label>¿Cómo la responde el estudiante?</label>' +
-    '<div class="rejilla dos">' +
-      opcion('alternativas', 'En pantalla', 'Marca una alternativa. Se corrige sola con la clave.') +
-      opcion('papel', 'En papel', 'La escribe en la hoja impresa. No aparece en pantalla y la corriges tú.') +
+    '<div class="rejilla tres">' +
+      opcion('alternativas', 'Marca una alternativa',
+        'En pantalla. Se corrige sola con la clave.') +
+      opcion('escrita', 'Escribe su respuesta',
+        'En pantalla, en un cuadro de texto. Tú lees lo que escribió y le pones puntaje.') +
+      opcion('papel', 'Responde en papel',
+        'En la hoja impresa. No aparece en pantalla y le pones puntaje tú.') +
     '</div></div>';
 }
 
+/** Las que no tienen clave: el puntaje lo pone la docente. */
+const seCorrigeAMano = (p) => p.tipo === 'papel' || p.tipo === 'escrita';
+
+/** Etiqueta corta del tipo, para las listas y los resúmenes. */
+const ETIQUETA_TIPO = {
+  escrita: '<span class="etiqueta ambar">Escrita</span>',
+  papel: '<span class="etiqueta ambar">En papel</span>',
+};
+
 function seccionPreguntas(preguntas, prueba, criterios) {
   const sinClasificar = preguntas.filter((p) => !p.eje).length;
-  const sinClave = preguntas.filter((p) => p.tipo !== 'papel' && !p.clave).length;
-  const enPapel = preguntas.filter((p) => p.tipo === 'papel');
+  const sinClave = preguntas.filter((p) => !seCorrigeAMano(p) && !p.clave).length;
+  const aMano = preguntas.filter(seCorrigeAMano);
   const puntajeTotal = preguntas.reduce((s, p) => s + (p.puntaje || 0), 0);
 
   return '<div class="tarjeta"><div class="fila"><h2 class="crece">Preguntas (' + preguntas.length + ')</h2>' +
@@ -512,10 +525,10 @@ function seccionPreguntas(preguntas, prueba, criterios) {
           (sinClasificar ? sinClasificar + ' pregunta(s) sin criterio: no aparecerán en el desglose del informe.' : '') +
         '</div>'
       : '') +
-    (enPapel.length
-      ? '<div class="aviso info">' + plural(enPapel.length, 'pregunta') + ' se responde(n) <strong>en papel</strong> ' +
-        '(N° ' + enPapel.map((p) => p.numero).join(', ') + '). No aparecen en pantalla: ' +
-        'las corriges tú en la pestaña <strong>Corregir</strong>, cuando los estudiantes hayan entregado.</div>'
+    (aMano.length
+      ? '<div class="aviso info">' + plural(aMano.length, 'pregunta') + ' sin alternativas ' +
+        '(N° ' + aMano.map((p) => p.numero + (p.tipo === 'papel' ? ' en papel' : ' escrita')).join(', ') + '). ' +
+        'Las corriges tú en la pestaña <strong>Corregir</strong>, cuando los estudiantes hayan entregado.</div>'
       : '') +
     preguntas.map((p) => tarjetaPregunta(p, criterios)).join('') +
     (preguntas.length ? '' : '<p class="silencio">Todavía no hay preguntas.</p>') +
@@ -523,7 +536,7 @@ function seccionPreguntas(preguntas, prueba, criterios) {
 }
 
 function tarjetaPregunta(p, criterios) {
-  const enPapel = p.tipo === 'papel';
+  const aMano = seCorrigeAMano(p);
   const resumen = (p.enunciado || '(sin enunciado)').slice(0, 90);
 
   const cuerpoAlternativas =
@@ -541,8 +554,9 @@ function tarjetaPregunta(p, criterios) {
 
   return '<details class="tarjeta" style="margin:.6rem 0" data-pregunta="' + p.id + '">' +
     '<summary><strong>' + p.numero + '.</strong> ' + esc(resumen) +
-      (enPapel
-        ? ' <span class="etiqueta ambar">En papel · ' + plural(p.puntaje, 'punto') + '</span>'
+      (aMano
+        ? ' <span class="etiqueta ambar">' + (p.tipo === 'papel' ? 'En papel' : 'Escrita') +
+          ' · ' + plural(p.puntaje, 'punto') + '</span>'
         : (p.clave ? ' <span class="etiqueta verde">Clave ' + p.clave + '</span>' : ' <span class="etiqueta roja">sin clave</span>')) +
       (p.eje ? ' <span class="etiqueta">' + esc(p.eje) + '</span>' : '') +
     '</summary>' +
@@ -569,8 +583,11 @@ function tarjetaPregunta(p, criterios) {
       '</div>' +
     '</details>' +
 
-    '<div data-cuerpo' + (enPapel ? ' hidden' : '') + '>' + cuerpoAlternativas + '</div>' +
-    '<div data-aviso-papel class="aviso info"' + (enPapel ? '' : ' hidden') + '>' +
+    '<div data-cuerpo' + (aMano ? ' hidden' : '') + '>' + cuerpoAlternativas + '</div>' +
+    '<div data-aviso-escrita class="aviso info"' + (p.tipo === 'escrita' ? '' : ' hidden') + '>' +
+      'El estudiante escribe su respuesta en un cuadro de texto. Tú la lees y le anotas ' +
+      'su puntaje (de 0 a ' + p.puntaje + ') en la pestaña <strong>Corregir</strong>.</div>' +
+    '<div data-aviso-papel class="aviso info"' + (p.tipo === 'papel' ? '' : ' hidden') + '>' +
       'Esta pregunta no aparece en pantalla. El estudiante la responde en la hoja impresa ' +
       'y tú anotas su puntaje (de 0 a ' + p.puntaje + ') en la pestaña <strong>Corregir</strong>.</div>' +
 
@@ -599,10 +616,10 @@ function leerPregunta(caja) {
   const tipo = caja.querySelector('[data-tipo]:checked');
   cuerpo.tipo = tipo ? tipo.dataset.tipo : 'alternativas';
 
-  // Una pregunta en papel no lleva alternativas ni clave. Enviarlas igual
-  // dejaria guardado un texto que despues reaparece si vuelve a ser de pantalla,
-  // pero sobre todo haria creer que tiene clave cuando no la tiene.
-  if (cuerpo.tipo === 'papel') return cuerpo;
+  // Una pregunta sin alternativas no lleva clave. Enviarlas igual dejaria
+  // guardado un texto que reaparece si vuelve a ser de alternativas, pero sobre
+  // todo haria creer que tiene clave cuando no la tiene.
+  if (cuerpo.tipo === 'papel' || cuerpo.tipo === 'escrita') return cuerpo;
 
   cuerpo.opciones = [...caja.querySelectorAll('[data-opcion]')]
     .map((c) => ({ letra: c.dataset.opcion, contenido: c.value }));
@@ -647,14 +664,17 @@ function conectarPreguntas(prueba, preguntas) {
   // dejaria las cinco alternativas a la vista y no quedaria claro que se ignoran.
   document.querySelectorAll('[data-pregunta]').forEach((caja) => {
     const cuerpo = caja.querySelector('[data-cuerpo]');
-    const aviso = caja.querySelector('[data-aviso-papel]');
-    if (!cuerpo || !aviso) return;
+    const avisoEscrita = caja.querySelector('[data-aviso-escrita]');
+    const avisoPapel = caja.querySelector('[data-aviso-papel]');
+    if (!cuerpo || !avisoPapel || !avisoEscrita) return;
 
     caja.querySelectorAll('[data-tipo]').forEach((radio) => {
       radio.addEventListener('change', () => {
-        const enPapel = radio.dataset.tipo === 'papel' && radio.checked;
-        cuerpo.hidden = enPapel;
-        aviso.hidden = !enPapel;
+        if (!radio.checked) return;
+        const tipo = radio.dataset.tipo;
+        cuerpo.hidden = tipo !== 'alternativas';
+        avisoEscrita.hidden = tipo !== 'escrita';
+        avisoPapel.hidden = tipo !== 'papel';
       });
     });
   });
@@ -692,12 +712,13 @@ function conectarPreguntas(prueba, preguntas) {
 /* ================================================================ CORREGIR */
 
 /**
- * Correccion de las preguntas que se responden en papel.
+ * Correccion de lo que no tiene clave: las preguntas escritas en pantalla y las
+ * respondidas en papel.
  *
- * Es una grilla —una fila por estudiante, una columna por pregunta— y no una
- * ficha por estudiante: la profesora corrige con la pila de hojas al lado y va
- * anotando; obligarla a entrar y salir de doscientas fichas haria la tarea
- * inviable. Cada casilla se guarda sola al cambiarla.
+ * Va agrupada POR PREGUNTA y no por estudiante. Corregir de corrido las
+ * doscientas respuestas a la misma pregunta es lo que permite aplicar el mismo
+ * criterio a todas; saltando de estudiante en estudiante, la exigencia se
+ * mueve sin que uno se de cuenta. Cada casilla se guarda sola.
  */
 export async function vistaCorregir(nodo, id) {
   const curso = sessionStorage.getItem('curso-informe') || '';
@@ -705,16 +726,17 @@ export async function vistaCorregir(nodo, id) {
 
   if (!r.preguntas.length) {
     nodo.innerHTML = cabecera(r.prueba, 'corregir') +
-      '<div class="tarjeta"><p>Esta prueba no tiene preguntas en papel.</p>' +
-      '<p class="silencio">En el editor, cada pregunta puede responderse <strong>en pantalla</strong> ' +
-      '(se corrige sola) o <strong>en papel</strong> (la corriges aquí).</p></div>';
+      '<div class="tarjeta"><p>Esta prueba no tiene preguntas para corregir a mano.</p>' +
+      '<p class="silencio">Al escribir una pregunta puedes elegir que el estudiante ' +
+      '<strong>escriba su respuesta</strong> en pantalla o que la <strong>responda en papel</strong>. ' +
+      'Esas son las que se corrigen aquí; las de alternativas se corrigen solas.</p></div>';
     return;
   }
 
   if (!r.alumnos.length) {
     nodo.innerHTML = cabecera(r.prueba, 'corregir') +
       '<div class="tarjeta"><p>Todavía no hay pruebas entregadas' + (curso ? ' en ' + esc(curso) : '') + '.</p>' +
-      '<p class="silencio">Las preguntas en papel se corrigen después de que el estudiante envía la parte en pantalla.</p></div>';
+      '<p class="silencio">Estas preguntas se corrigen después de que el estudiante envía la prueba.</p></div>';
     return;
   }
 
@@ -722,19 +744,6 @@ export async function vistaCorregir(nodo, id) {
 
   nodo.innerHTML = cabecera(r.prueba, 'corregir') +
     '<div id="aviso" class="aviso"></div>' +
-
-    '<div class="tarjeta"><h2>Preguntas en papel</h2>' +
-      '<p class="silencio">Anota el puntaje que obtuvo cada estudiante. ' +
-        'El botón <strong>✓</strong> pone el puntaje completo y <strong>✗</strong> pone cero; ' +
-        'si la respuesta quedó a medias, escribe el puntaje directamente en la casilla. ' +
-        'Cada cambio se guarda solo y la nota se recalcula al momento.</p>' +
-      '<table><thead><tr><th>N°</th><th>Pregunta</th><th>Criterio</th><th>Puntaje</th></tr></thead><tbody>' +
-        r.preguntas.map((p) =>
-          '<tr><td><strong>' + p.numero + '</strong></td>' +
-            '<td>' + esc((p.enunciado || '(sin enunciado)').slice(0, 120)) + '</td>' +
-            '<td class="silencio">' + esc(p.eje || '—') + '</td>' +
-            '<td>' + p.puntaje + '</td></tr>').join('') +
-      '</tbody></table></div>' +
 
     '<div class="fila no-imprimir">' +
       '<div style="min-width:200px"><label>Curso</label><select id="filtro">' +
@@ -745,23 +754,28 @@ export async function vistaCorregir(nodo, id) {
       '<div id="avance" class="etiqueta"></div>' +
     '</div>' +
 
-    '<div class="tarjeta tabla-scroll">' +
-      '<table class="corregir"><thead><tr>' +
-        '<th>Estudiante</th><th>Curso</th>' +
-        r.preguntas.map((p) => '<th>N° ' + p.numero + ' <span class="silencio">/ ' + p.puntaje + '</span></th>').join('') +
-      '</tr></thead><tbody>' +
-      r.alumnos.map((a) =>
-        '<tr data-intento="' + a.intento_id + '">' +
-          '<td>' + esc(a.nombre) + '</td><td class="silencio">' + esc(a.curso) + '</td>' +
-          r.preguntas.map((p) => celdaCorreccion(a, p)).join('') +
-        '</tr>').join('') +
-      '</tbody></table></div>';
+    '<div class="tarjeta"><p class="silencio" style="margin:0">' +
+      'El botón <strong>✓</strong> pone el puntaje completo y <strong>✗</strong> pone cero. ' +
+      'Si la respuesta quedó a medias, escribe el puntaje en la casilla. ' +
+      'Cada cambio se guarda solo y la nota se recalcula al momento.</p></div>' +
+
+    r.preguntas.map((p) => bloqueCorreccion(p, r.alumnos)).join('');
 
   const refrescarAvance = () => {
     const hechas = $$('[data-puntaje]').filter((c) => c.value !== '').length;
     const nodoAvance = $('#avance');
     nodoAvance.textContent = 'Corregidas ' + hechas + ' de ' + total;
     nodoAvance.className = 'etiqueta' + (hechas === total ? ' verde' : '');
+
+    // Cada bloque lleva su propia cuenta: con varias preguntas, saber cuánto
+    // falta de la que se está corrigiendo importa más que el total.
+    $$('[data-bloque]').forEach((bloque) => {
+      const campos = [...bloque.querySelectorAll('[data-puntaje]')];
+      const listas = campos.filter((c) => c.value !== '').length;
+      const marca = bloque.querySelector('[data-avance-bloque]');
+      marca.textContent = listas + ' de ' + campos.length;
+      marca.className = 'etiqueta' + (listas === campos.length ? ' verde' : ' ambar');
+    });
   };
 
   $('#filtro').addEventListener('change', (e) => {
@@ -773,8 +787,41 @@ export async function vistaCorregir(nodo, id) {
   refrescarAvance();
 }
 
-function celdaCorreccion(alumno, pregunta) {
-  const valor = alumno.puntajes[pregunta.id];
+function bloqueCorreccion(pregunta, alumnos) {
+  const enPapel = pregunta.tipo === 'papel';
+
+  return '<div class="tarjeta tabla-scroll" data-bloque="' + pregunta.id + '">' +
+    '<div class="fila">' +
+      '<h2 class="crece" style="margin:0">N° ' + pregunta.numero + ' · ' +
+        plural(pregunta.puntaje, 'punto') + '</h2>' +
+      (ETIQUETA_TIPO[pregunta.tipo] || '') +
+      '<span data-avance-bloque class="etiqueta"></span>' +
+    '</div>' +
+    '<p style="margin:.6rem 0 .2rem">' + esc(pregunta.enunciado || '(sin enunciado)') + '</p>' +
+    (pregunta.eje ? '<p class="silencio" style="margin:0 0 .8rem">' + esc(pregunta.eje) + '</p>' : '') +
+
+    '<table class="corregir"><thead><tr>' +
+      '<th>Estudiante</th><th>Curso</th>' +
+      (enPapel ? '' : '<th>Lo que escribió</th>') +
+      '<th style="width:12rem">Puntaje</th>' +
+    '</tr></thead><tbody>' +
+    alumnos.map((a) => {
+      const dato = a.respuestas[pregunta.id] || {};
+      const texto = String(dato.texto || '').trim();
+
+      return '<tr data-intento="' + a.intento_id + '">' +
+        '<td>' + esc(a.nombre) + '</td>' +
+        '<td class="silencio">' + esc(a.curso) + '</td>' +
+        (enPapel ? '' : '<td class="respuesta-escrita">' +
+          (texto ? esc(texto) : '<span class="silencio">no respondió</span>') + '</td>') +
+        celdaCorreccion(dato, pregunta) +
+      '</tr>';
+    }).join('') +
+    '</tbody></table></div>';
+}
+
+function celdaCorreccion(dato, pregunta) {
+  const valor = dato.puntaje;
   const anotado = valor !== undefined && valor !== null;
 
   return '<td class="celda-correccion' + (anotado ? '' : ' pendiente') + '">' +
@@ -821,6 +868,7 @@ function conectarCorreccion(refrescarAvance) {
     });
   });
 }
+
 
 /* ================================================================== MONITOR */
 
@@ -929,7 +977,7 @@ export async function vistaInforme(nodo, id) {
     // que alguien traspase al libro de clases un informe a medio hacer.
     (r.pendientes_correccion
       ? '<div class="aviso error"><strong>Faltan correcciones.</strong> ' +
-        'Hay ' + plural(r.pendientes_correccion, 'respuesta') + ' en papel sin corregir. ' +
+        'Hay ' + plural(r.pendientes_correccion, 'respuesta') + ' sin corregir. ' +
         'Mientras tanto esos puntos no suman, así que los porcentajes y las notas de abajo ' +
         'están por debajo de lo que van a quedar. ' +
         '<a href="#prueba/' + id + '/corregir">Ir a corregir</a>.</div>'
@@ -1071,20 +1119,20 @@ function seccionPorCurso(r) {
 }
 
 function seccionTabla1(r) {
-  const conPapel = r.preguntas.some((p) => p.tipo === 'papel');
+  const conManual = r.preguntas.some(seCorrigeAMano);
 
   return '<div class="tarjeta tabla-scroll"><h2>4. Resultados por pregunta</h2>' +
     '<p class="silencio">La alternativa correcta va destacada. Un distractor con alto porcentaje señala un error de comprensión que vale la pena indagar.' +
-      (conPapel
-        ? ' En las preguntas <strong>en papel</strong> no hay alternativas: se muestra cuántas quedaron ' +
-          'correctas (C), con puntaje parcial (P), incorrectas (I) y sin corregir (N).'
+      (conManual
+        ? ' En las preguntas <strong>escritas</strong> y <strong>en papel</strong> no hay alternativas: ' +
+          'se muestra cuántas quedaron correctas (C), con puntaje parcial (P), incorrectas (I) y sin corregir (N).'
         : '') + '</p>' +
     '<table><thead><tr>' +
       '<th>N°</th><th>Criterio</th><th>% respuestas</th><th>Logro</th>' +
     '</tr></thead><tbody>' +
     r.preguntas.map((p) =>
       '<tr><td><strong>' + p.numero + '</strong>' +
-          (p.tipo === 'papel' ? '<br><span class="etiqueta ambar">papel</span>' : '') + '</td>' +
+          (seCorrigeAMano(p) ? '<br>' + (ETIQUETA_TIPO[p.tipo] || '') : '') + '</td>' +
         '<td class="silencio">' + esc(p.eje) + '</td>' +
         '<td style="white-space:nowrap">' +
           p.distribucion.map((d) =>
@@ -1093,7 +1141,7 @@ function seccionTabla1(r) {
         '</td>' +
         // Una pregunta en papel que nadie ha corregido todavia no tiene logro:
         // mostrar 0 % la haria ver como el peor resultado de la prueba.
-        '<td>' + (p.tipo === 'papel' && !p.corregidas
+        '<td>' + (seCorrigeAMano(p) && !p.corregidas
           ? '<span class="silencio">sin corregir</span>'
           : barra(p.logro) + ' ' + p.logro + '%') + '</td>' +
       '</tr>').join('') +
@@ -1219,7 +1267,7 @@ export async function vistaInformeAlumno(nodo, intentoId) {
 
     (r.pendientes_correccion
       ? '<div class="aviso error"><strong>Nota provisoria.</strong> Le falta(n) ' +
-        plural(r.pendientes_correccion, 'pregunta') + ' en papel por corregir, así que esos puntos ' +
+        plural(r.pendientes_correccion, 'pregunta') + ' por corregir, así que esos puntos ' +
         'todavía no suman. <a href="#prueba/' + r.prueba.id + '/corregir">Ir a corregir</a>.</div>'
       : '') +
 
@@ -1243,18 +1291,26 @@ export async function vistaInformeAlumno(nodo, intentoId) {
     '<div class="tarjeta tabla-scroll"><h2>Detalle pregunta a pregunta</h2>' +
       '<table><thead><tr><th>N°</th><th>Criterio</th><th>Respondió</th><th>Correcta</th><th>Puntaje</th><th></th></tr></thead><tbody>' +
       r.preguntas.map((p) => {
-        const enPapel = p.tipo === 'papel';
-        const marca = !enPapel || p.corregida
+        const aMano = seCorrigeAMano(p);
+        const marca = !aMano || p.corregida
           ? (p.correcta ? '<span class="etiqueta verde">✓</span>' : '<span class="etiqueta roja">✗</span>')
           : '<span class="etiqueta ambar">sin corregir</span>';
 
+        // En las escritas, lo que se muestra es el texto del estudiante: es lo
+        // que la docente necesita releer cuando revisa una hoja individual.
+        const respondio = p.tipo === 'papel'
+          ? '<span class="silencio">en la hoja impresa</span>'
+          : (p.tipo === 'escrita'
+            ? (String(p.respuesta_texto || '').trim()
+              ? '<span class="respuesta-escrita">' + esc(p.respuesta_texto) + '</span>'
+              : '<span class="silencio">no respondió</span>')
+            : (p.respondio || '<span class="silencio">no respondió</span>'));
+
         return '<tr><td><strong>' + p.numero + '</strong>' +
-            (enPapel ? ' <span class="etiqueta ambar">papel</span>' : '') + '</td>' +
+            (aMano ? ' ' + (ETIQUETA_TIPO[p.tipo] || '') : '') + '</td>' +
           '<td class="silencio">' + esc(p.eje) + '</td>' +
-          '<td>' + (enPapel
-            ? '<span class="silencio">en la hoja impresa</span>'
-            : (p.respondio || '<span class="silencio">no respondió</span>')) + '</td>' +
-          '<td>' + (enPapel ? '—' : esc(p.clave || '')) + '</td>' +
+          '<td>' + respondio + '</td>' +
+          '<td>' + (aMano ? '—' : esc(p.clave || '')) + '</td>' +
           '<td class="silencio">' + p.puntaje + ' / ' + p.puntaje_max + '</td>' +
           '<td>' + marca + '</td>' +
         '</tr>';
@@ -1270,7 +1326,7 @@ export async function vistaInformeAlumno(nodo, intentoId) {
  */
 export async function vistaPrevia(nodo, id) {
   const r = await api('/api/admin/pruebas/' + id + '/vista-previa');
-  const sinClave = r.preguntas.filter((p) => p.tipo !== 'papel' && !p.clave).length;
+  const sinClave = r.preguntas.filter((p) => !seCorrigeAMano(p) && !p.clave).length;
   const sinCriterio = r.preguntas.filter((p) => !p.eje).length;
 
   nodo.innerHTML = cabecera(r.prueba, 'vista') +
@@ -1294,11 +1350,15 @@ export async function vistaPrevia(nodo, id) {
 }
 
 function dibujarPreguntaPrevia(p) {
-  const enPapel = p.tipo === 'papel';
+  const aMano = seCorrigeAMano(p);
 
-  const alternativas = enPapel
+  const alternativas = p.tipo === 'papel'
     ? '<div class="aviso info" style="margin:.6rem 0 0">Se responde en la hoja impresa. ' +
       'No aparece en pantalla; vale ' + plural(p.puntaje, 'punto') + ' y la corriges tú.</div>'
+    : p.tipo === 'escrita'
+    ? '<textarea rows="4" disabled placeholder="Aquí escribe el estudiante su respuesta"></textarea>' +
+      '<div class="aviso info" style="margin:.6rem 0 0">Vale ' + plural(p.puntaje, 'punto') +
+      ' y la corriges tú leyendo lo que escribió.</div>'
     : (p.opciones || []).map((o) => {
         const correcta = o.letra === p.clave;
         return '<div class="alternativa' + (correcta ? ' elegida' : '') + '" style="cursor:default">' +
@@ -1313,9 +1373,9 @@ function dibujarPreguntaPrevia(p) {
     (p.cita ? '<div class="cita">' + esc(p.cita) + '</div>' : '') +
     alternativas +
     '<p class="silencio" style="margin:.6rem 0 0">' +
-      (enPapel ? '<span class="etiqueta ambar">en papel</span> ' : '') +
+      (aMano ? (ETIQUETA_TIPO[p.tipo] || '') + ' ' : '') +
       (p.eje ? '<span class="etiqueta">' + esc(p.eje) + '</span>' : '<span class="etiqueta roja">sin criterio</span>') +
-      (enPapel || p.clave ? '' : ' <span class="etiqueta roja">sin clave</span>') +
+      (aMano || p.clave ? '' : ' <span class="etiqueta roja">sin clave</span>') +
     '</p>' +
   '</div>';
 }
@@ -1382,15 +1442,16 @@ function hojaDeAlumno(inf, e, indice) {
       '<h3 style="margin-top:1.2rem">Respuestas</h3>' +
       '<p class="silencio">' + correctas + ' correctas de ' + inf.preguntas.length + '.' +
         (inf.pendientes_correccion
-          ? ' <strong>Faltan ' + plural(inf.pendientes_correccion, 'pregunta') + ' en papel por corregir.</strong>'
+          ? ' <strong>Faltan ' + plural(inf.pendientes_correccion, 'pregunta') + ' por corregir.</strong>'
           : '') + '</p>' +
       '<div class="navegador">' +
         inf.preguntas.map((p) => {
-          const sinCorregir = p.tipo === 'papel' && !p.corregida;
-          const clase = sinCorregir ? 'vacia' : (p.correcta ? 'ok' : (p.tipo === 'papel' || p.respondio ? 'mal' : 'vacia'));
+          const aMano = seCorrigeAMano(p);
+          const sinCorregir = aMano && !p.corregida;
+          const clase = sinCorregir ? 'vacia' : (p.correcta ? 'ok' : (aMano || p.respondio ? 'mal' : 'vacia'));
+          const nota = p.tipo === 'papel' ? ' · en papel' : (p.tipo === 'escrita' ? ' · escrita' : '');
           return '<span class="marca-respuesta ' + clase + '" ' +
-            'title="' + esc(p.eje || '') + (p.tipo === 'papel' ? ' · en papel' : '') + '">' +
-            p.numero + '</span>';
+            'title="' + esc(p.eje || '') + nota + '">' + p.numero + '</span>';
         }).join('') +
       '</div>' +
       '<p class="silencio" style="margin-top:.6rem;font-size:.8rem">' +

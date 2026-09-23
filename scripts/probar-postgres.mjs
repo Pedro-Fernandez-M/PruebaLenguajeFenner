@@ -304,10 +304,25 @@ await vieja.query(
 await vieja.query('INSERT INTO alumnos (nombre, curso, codigo) VALUES ($1, $2, $3)', ['Alumna', '2° D', 'ABCD-1234']);
 await vieja.query("INSERT INTO intentos (prueba_id, alumno_id, estado) VALUES (1, 1, 'enviado')");
 
+// Una escrita: el alumno SI la ve en pantalla, pero la corrige la docente.
+await vieja.query(
+  "INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, eje, puntaje) " +
+    "VALUES (1, 49, 'escrita', 'Explica con tus palabras', 'Localizar', 3)"
+);
+
 const enPantalla = (await vieja.query(
   "SELECT COUNT(*) AS n FROM preguntas WHERE prueba_id = 1 AND tipo <> 'papel'"
 )).rows[0];
-afirmar(Number(enPantalla.n) === 47, 'la consulta del alumno deja fuera la de papel', 'n=' + enPantalla.n);
+afirmar(Number(enPantalla.n) === 48, 'la consulta del alumno deja fuera la de papel pero incluye la escrita', 'n=' + enPantalla.n);
+
+const aMano = (await vieja.query(
+  "SELECT numero, tipo FROM preguntas WHERE prueba_id = 1 AND tipo IN ('papel','escrita') ORDER BY numero"
+)).rows;
+afirmar(
+  aMano.length === 2 && aMano.map((p) => p.tipo).sort().join(',') === 'escrita,papel',
+  'la pantalla de corregir recoge los dos tipos sin clave',
+  aMano.map((p) => 'N°' + p.numero + ' ' + p.tipo).join(', ')
+);
 
 // La correccion se guarda como puntaje en la respuesta, sin alternativa.
 await vieja.query(

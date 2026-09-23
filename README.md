@@ -91,27 +91,37 @@ dos consecuencias:
 Un criterio solo alcanza a las pruebas de su docente: si dos tienen uno que se
 llama igual, no es el mismo criterio y renombrar el de una no toca el de la otra.
 
-### Dos formas de responder
+### Tres formas de responder
 
-Cada pregunta se responde **en pantalla** o **en papel**:
+Al escribir cada pregunta se elige cómo la contesta el estudiante:
 
-| | En pantalla | En papel |
-|---|---|---|
-| El estudiante | marca una alternativa | la escribe en la hoja impresa |
-| Aparece en el navegador | sí | **no** |
-| Se corrige | sola, contra la clave | la docente anota el puntaje |
+| | Marca una alternativa | Escribe su respuesta | Responde en papel |
+|---|---|---|---|
+| Dónde | en pantalla | en pantalla | en la hoja impresa |
+| Aparece en el navegador | sí | sí | **no** |
+| Se corrige | sola, contra la clave | la docente la lee y le pone puntaje | la docente le pone puntaje |
 
 Las preguntas en papel conservan su número, así que en pantalla puede verse
 1, 2, 4, 5… y eso es correcto: los números tienen que calzar con el cuadernillo
 que el estudiante tiene en la mesa.
 
-Se corrigen en la pestaña **Corregir**, una grilla con una fila por estudiante y
-una columna por pregunta: **✓** pone el puntaje completo, **✗** pone cero, y para
-una respuesta a medias se escribe el puntaje. Cada casilla se guarda sola y la
-nota se recalcula al momento.
+Las respuestas escritas se guardan solas mientras el estudiante escribe, con un
+retardo de poco más de un segundo: enviar en cada tecla serían cientos de
+peticiones por alumno. Lo que quede pendiente se fuerza antes de enviar la prueba.
 
-Mientras queden preguntas en papel sin corregir, esos puntos no suman, y el
-informe lo avisa arriba y en rojo.
+Las dos que no tienen clave se corrigen en la pestaña **Corregir**, agrupadas
+**por pregunta**: **✓** pone el puntaje completo, **✗** pone cero, y para una
+respuesta a medias se escribe el puntaje. En las escritas, al lado va lo que
+redactó cada estudiante, para leerlo y calificarlo ahí mismo. Cada casilla se
+guarda sola y la nota se recalcula al momento.
+
+Van por pregunta y no por estudiante a propósito: corregir de corrido las
+doscientas respuestas a la misma pregunta es lo que permite aplicar el mismo
+criterio a todas. Saltando de estudiante en estudiante, la exigencia se mueve
+sin que uno se dé cuenta.
+
+Mientras queden respuestas sin corregir, esos puntos no suman, y el informe lo
+avisa arriba y en rojo.
 
 El N° de OA y el indicador quedan como datos opcionales.
 
@@ -174,18 +184,18 @@ pantalla que ya no existe.
    editor. También se puede *Duplicar* una prueba anterior para partir de ella.
 4. **Armar los criterios**, en el panel del editor: se escriben, se asignan con un
    clic y se quitan con una ×.
-5. **Escribir cada pregunta**: elegir si se responde en pantalla o en papel, poner
-   su puntaje, sus alternativas y la correcta, y marcar el criterio que evalúa. El
-   botón *Guardar y agregar otra* encadena la siguiente heredando criterio, tipo y
-   puntaje de la anterior.
+5. **Escribir cada pregunta**: elegir cómo se responde (alternativa, escrita en
+   pantalla o en papel), poner su puntaje, sus alternativas y la correcta, y marcar
+   el criterio que evalúa. El botón *Guardar y agregar otra* encadena la siguiente
+   heredando criterio, tipo y puntaje de la anterior.
 6. **Revisar con *Ver la prueba***, que la muestra tal como la verá el estudiante,
    con la alternativa correcta destacada.
 7. **Publicar.** En los ajustes, estado → *publicada*. Marca los cursos que pueden
    rendirla y fija una duración en minutos.
 8. **Monitor.** Durante la prueba, ver quién está rindiendo y cuánto lleva respondido.
    Permite reabrir el intento de un alumno al que se le cortó la conexión.
-9. **Corregir.** Si la prueba tiene preguntas en papel, anotar el puntaje de cada
-   estudiante en la grilla. Solo aparece lo que falta por revisar.
+9. **Corregir.** Si la prueba tiene preguntas escritas o en papel, leer y anotar
+   el puntaje de cada estudiante, agrupado por pregunta.
 10. **Informe.** Las secciones del informe del DIA más la de calificación,
     filtrable por curso, imprimible y descargable en CSV.
 
@@ -201,7 +211,7 @@ pantalla que ya no existe.
    niveles y habilidades de cada uno, lado a lado.
 4. **Resultados por pregunta** — el **porcentaje que eligió cada alternativa**,
    incluida la opción *N* (no responde). Un distractor sobre 30 % se marca en rojo.
-   En las preguntas en papel no hay alternativas: se muestra cuántas quedaron
+   En las escritas y las de papel no hay alternativas: se muestra cuántas quedaron
    correctas, con puntaje parcial, incorrectas y **sin corregir**.
 5. **Resultados por estudiante** — puntaje, porcentaje, **nota** y nivel.
 6. **Resultados según calificación** — promedio del curso, cuántos aprueban y la
@@ -213,9 +223,11 @@ Dos botones generan además hojas imprimibles, cada una con salto de página:
 **Informes por curso** (un informe completo por curso, con sus dos gráficos) e **Informes por alumno**
 (una hoja por estudiante con su logro, su nivel y su desempeño por habilidad).
 
-El CSV trae una fila por alumno y una columna por pregunta con la letra marcada,
-más la **nota**, la clave y los niveles de logro. La nota va con coma decimal y
-sin comillas, para que Excel la tome como número y no como texto.
+El CSV trae una fila por alumno y una columna por pregunta —la letra marcada, o
+el puntaje que puso la docente en las que corrige a mano—, más la **nota**, la
+clave y los niveles de logro. La nota va con coma decimal y sin comillas, para
+que Excel la tome como número y no como texto. El texto completo de una respuesta
+escrita no cabe en una celda: eso se lee en la pestaña *Corregir*.
 
 ---
 
@@ -223,8 +235,9 @@ sin comillas, para que Excel la tome como número y no como texto.
 
 - **La cuenta docente** y sus tres criterios iniciales.
 - **Prueba de demostración**, publicada y lista para recorrer el circuito completo:
-  cinco preguntas de alternativas en pantalla y una en papel de 4 puntos, que
-  permite probar la corrección a mano y ver cómo cambia la nota.
+  cinco preguntas de alternativas, una escrita en pantalla (3 puntos) y una en
+  papel (4 puntos), que permiten probar los tres tipos y ver cómo cambia la nota
+  al corregir.
 - **Tres alumnos de demostración** con sus códigos.
 
 La nómina real se carga aparte; el sembrado no la toca.
@@ -275,7 +288,8 @@ scripts/
   en `.env`** por una cadena larga y aleatoria.
 - La prueba que recibe el alumno **nunca incluye la clave ni las pautas de
   corrección**: se filtran en el servidor, no en el navegador. Las preguntas en
-  papel no le llegan siquiera.
+  papel no le llegan siquiera, y el servidor rechaza cualquier intento de
+  responderlas.
 - El alumno **no tiene manera de conocer su nota**: no existe una ruta que se la
   entregue. La calificación solo se ve desde el panel docente.
 - El servidor local escucha en toda la red (`0.0.0.0`). Es lo que permite que los

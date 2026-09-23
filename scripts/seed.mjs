@@ -92,8 +92,8 @@ if (!demo) {
       TITULO_DEMO,
       'Prueba corta para probar la plataforma de punta a punta: ingreso con código, respuesta, ' +
         'corrección de la pregunta en papel e informe con nota.',
-      'El texto «El turno de la noche» se entrega impreso. En pantalla aparecen solo las preguntas ' +
-        'de alternativas: la N° 6 se responde en la hoja impresa.',
+      'El texto «El turno de la noche» se entrega impreso. Las preguntas 1 a 5 son de alternativas, ' +
+        'la 6 se escribe en pantalla y la 7 se responde en la hoja impresa.',
       profesor.id,
     ]
   );
@@ -161,10 +161,20 @@ if (!demo) {
     }
   }
 
-  // Una pregunta en papel, para tener algo que corregir a mano en la demo.
+  // Una escrita y una en papel: los dos tipos que corrige la docente.
   await db.run(
     'INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, eje, puntaje) ' +
-      "VALUES (?, 6, 'papel', ?, 'Reflexionar', 4)",
+      "VALUES (?, 6, 'escrita', ?, 'Reflexionar', 3)",
+    [
+      demo.id,
+      '¿Qué quiere decir don Elías con que «de noche uno le da a la gente algo caliente para ' +
+        'aguantar hasta que salga el sol»? Explícalo con tus palabras.',
+    ]
+  );
+
+  await db.run(
+    'INSERT INTO preguntas (prueba_id, numero, tipo, enunciado, eje, puntaje) ' +
+      "VALUES (?, 7, 'papel', ?, 'Reflexionar', 4)",
     [
       demo.id,
       '¿Estás de acuerdo con lo que dice don Elías sobre el pan de noche? Fundamenta tu respuesta ' +
@@ -172,7 +182,8 @@ if (!demo) {
     ]
   );
 
-  console.log('Prueba de demostración creada y publicada: 5 preguntas en pantalla + 1 en papel (4 puntos).');
+  console.log('Prueba de demostración creada y publicada: 5 de alternativas, ' +
+    '1 escrita en pantalla (3 puntos) y 1 en papel (4 puntos).');
 }
 
 /* ------------------------------------------------------- alumnos de prueba */

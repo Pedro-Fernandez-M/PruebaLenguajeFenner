@@ -1,6 +1,6 @@
-// Correccion y calculo de informes. Replica la logica del DIA:
-//  - preguntas de alternativas: correcta / incorrecta / N (no responde)
-//  - preguntas de desarrollo: codigo 2 (correcta), 1 (parcial), 0 (incorrecta)
+// Correccion y calculo de informes, con la estructura del informe del DIA:
+//  - preguntas de alternativas: se corrigen solas contra la clave
+//  - preguntas escritas o en papel: el puntaje lo pone la docente
 //  - niveles de logro I / II / III segun umbrales configurables por prueba
 import * as db from '../db/index.js';
 import { escalaDeNotas, calcularNota, promedioDeNotas, aprobada } from '../../public/js/notas.js';
@@ -12,11 +12,21 @@ import { escalaDeNotas, calcularNota, promedioDeNotas, aprobada } from '../../pu
 
 // Como responde el alumno cada pregunta:
 //   alternativas  la marca en pantalla y se corrige sola contra la clave
+//   escrita       la redacta en pantalla; la docente lee lo que escribio y le
+//                 pone puntaje
 //   papel         la escribe en la hoja impresa; no aparece en pantalla y la
 //                 corrige la docente, que anota el puntaje obtenido
-export const TIPOS_PREGUNTA = ['alternativas', 'papel'];
+export const TIPOS_PREGUNTA = ['alternativas', 'escrita', 'papel'];
 
+/** No viaja al navegador del alumno: se responde en la hoja impresa. */
 export const esDePapel = (pregunta) => pregunta.tipo === 'papel';
+
+/**
+ * No hay clave contra la cual comparar: el puntaje lo pone la docente.
+ * Es lo que tienen en comun `escrita` y `papel`, y la diferencia con
+ * `alternativas` que importa a la hora de corregir y de contar pendientes.
+ */
+export const seCorrigeAMano = (pregunta) => pregunta.tipo === 'papel' || pregunta.tipo === 'escrita';
 
 // Las pruebas de comprension lectora usan 4 o 5 alternativas segun el caso.
 // Se admiten hasta cinco: las que queden vacias no se muestran al estudiante
@@ -65,7 +75,7 @@ export async function recalcularIntento(intentoId) {
     maximo += pregunta.puntaje;
     const respuesta = porPregunta.get(pregunta.id);
 
-    if (!esDePapel(pregunta)) {
+    if (!seCorrigeAMano(pregunta)) {
       const acierto = !!(respuesta && respuesta.alternativa && respuesta.alternativa === pregunta.clave);
       const puntaje = acierto ? pregunta.puntaje : 0;
       obtenido += puntaje;
@@ -75,8 +85,8 @@ export async function recalcularIntento(intentoId) {
       continue;
     }
 
-    // Pregunta en papel: el alumno no la responde en pantalla, asi que aqui no
-    // hay nada que corregir solo. Suma unicamente lo que la docente ya anoto;
+    // Pregunta corregida a mano (escrita en pantalla o respondida en papel):
+    // aqui no hay nada que corregir solo. Suma unicamente lo que la docente anoto;
     // mientras no lo haga, cuenta como pendiente y NO como cero, para que el
     // informe pueda avisar en vez de mostrar notas bajas inventadas.
     if (respuesta && respuesta.corregida && respuesta.puntaje !== null && respuesta.puntaje !== undefined) {
@@ -195,7 +205,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       pendientes: 0,
     };
 
-    if (!esDePapel(pregunta)) {
+    if (!seCorrigeAMano(pregunta)) {
       const conteo = { A: 0, B: 0, C: 0, D: 0, E: 0, N: 0 };
       for (const r of lista) {
         if (r.alternativa && conteo[r.alternativa] !== undefined) conteo[r.alternativa] += 1;
@@ -227,9 +237,9 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       });
       fila.correctas = conteo[pregunta.clave] || 0;
     } else {
-      // Pregunta en papel. Aqui no hay alternativas que repartir: lo que
-      // interesa es cuantos la tienen corregida, con cuanto puntaje, y cuantas
-      // quedan por revisar.
+      // Pregunta corregida a mano. Aqui no hay alternativas que repartir: lo
+      // que interesa es cuantos la tienen corregida, con cuanto puntaje, y
+      // cuantas quedan por revisar.
       const corregidas = lista.filter((r) => r.corregida && r.puntaje !== null && r.puntaje !== undefined);
       const sinCorregir = totalAlumnos - corregidas.length;
 
@@ -319,7 +329,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
       const lista = (respuestasPorPregunta.get(pregunta.id) || []).filter((r) => idsCurso.has(r.intento_id));
       const a = acumulado.get(pregunta.eje) || { obtenido: 0, maximo: 0 };
 
-      if (esDePapel(pregunta)) {
+      if (seCorrigeAMano(pregunta)) {
         // Igual que en el detalle por pregunta: solo cuentan las ya corregidas,
         // para no confundir "sin revisar" con "mal respondida".
         const corregidas = lista.filter((r) => r.corregida && r.puntaje !== null && r.puntaje !== undefined);
@@ -377,6 +387,7 @@ export async function informeDePrueba(pruebaId, filtroCurso = '') {
     cursos_disponibles: cursos.map((c) => c.curso),
     total_alumnos: totalAlumnos,
     en_curso: enCurso ? enCurso.n : 0,
+    preguntas_a_mano: preguntas.filter(seCorrigeAMano).length,
     preguntas_papel: preguntas.filter(esDePapel).length,
     pendientes_correccion: pendientesCorreccion,
     promedio_logro: totalAlumnos
@@ -416,12 +427,11 @@ export async function informeDeAlumno(intentoId) {
   const detalle = preguntas.map((p) => {
     const r = mapa.get(p.id) || null;
     const puntaje = r && r.puntaje != null ? r.puntaje : 0;
-    const porRevisar = esDePapel(p) && !(r && r.corregida);
+    const porRevisar = seCorrigeAMano(p) && !(r && r.corregida);
     if (porRevisar) pendientes += 1;
 
-    // Una pregunta en papel sin revisar no entra al desglose: contarla como
-    // cero haria ver el criterio como no logrado cuando lo que falta es
-    // corregirla.
+    // Una pregunta sin revisar no entra al desglose: contarla como cero haria
+    // ver el criterio como no logrado cuando lo que falta es corregirla.
     if (p.eje && !porRevisar) {
       const a = acumuladoEje.get(p.eje) || { obtenido: 0, maximo: 0 };
       a.obtenido += puntaje;
@@ -440,8 +450,9 @@ export async function informeDeAlumno(intentoId) {
       puntaje,
       puntaje_max: p.puntaje,
       // En papel no hay "respondió": hay corregida o pendiente.
-      corregida: esDePapel(p) ? !!(r && r.corregida) : true,
-      correcta: esDePapel(p)
+      respuesta_texto: r ? (r.respuesta_texto || '') : '',
+      corregida: seCorrigeAMano(p) ? !!(r && r.corregida) : true,
+      correcta: seCorrigeAMano(p)
         ? !!(r && r.corregida && puntaje >= p.puntaje)
         : !!(r && r.alternativa === p.clave),
     };

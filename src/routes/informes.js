@@ -1,7 +1,8 @@
 import express from 'express';
 import * as db from '../db/index.js';
 import { exigirProfesor } from '../lib/sesion.js';
-import { informeDePrueba, informeDeAlumno, recalcularIntento, puntajeValido, NOMBRE_NIVEL } from '../lib/evaluacion.js';
+import { informeDePrueba, informeDeAlumno, recalcularIntento, puntajeValido,
+  seCorrigeAMano, NOMBRE_NIVEL } from '../lib/evaluacion.js';
 
 const router = express.Router();
 router.use(exigirProfesor);
@@ -54,19 +55,20 @@ router.delete('/intentos/:id', async (req, res) => {
 /* ---------------------------------------------------------------- correccion */
 
 /**
- * Todo lo necesario para corregir a mano las preguntas en papel: las preguntas
- * de ese tipo y, por cada estudiante que entrego, el puntaje ya anotado.
+ * Todo lo necesario para corregir a mano: las preguntas que no tienen clave
+ * —las escritas en pantalla y las respondidas en papel— y, por cada estudiante
+ * que entrego, lo que escribio y el puntaje ya anotado.
  *
- * Va todo en una peticion a proposito. Con 200 estudiantes y tres preguntas en
- * papel, pedir celda por celda serian 600 viajes.
+ * Va todo en una peticion a proposito. Con 200 estudiantes y tres preguntas por
+ * corregir, pedir celda por celda serian 600 viajes.
  */
 router.get('/pruebas/:id/correccion', async (req, res) => {
   const prueba = await db.get('SELECT * FROM pruebas WHERE id = ?', [req.params.id]);
   if (!prueba) return res.status(404).json({ error: 'Prueba no encontrada.' });
 
   const preguntas = await db.all(
-    "SELECT id, numero, enunciado, puntaje, eje FROM preguntas " +
-      "WHERE prueba_id = ? AND tipo = 'papel' ORDER BY numero",
+    'SELECT id, numero, tipo, enunciado, puntaje, eje FROM preguntas ' +
+      "WHERE prueba_id = ? AND tipo IN ('papel', 'escrita') ORDER BY numero",
     [prueba.id]
   );
 
@@ -86,9 +88,12 @@ router.get('/pruebas/:id/correccion', async (req, res) => {
   let anotadas = [];
   if (intentos.length && idsPreguntas.length) {
     const marcadores = idsPreguntas.map(() => '?').join(',');
+    // Aqui NO se filtra por corregida: hace falta traer tambien lo que el
+    // estudiante escribio y todavia no se revisa, que es justamente lo que la
+    // docente tiene que leer para ponerle puntaje.
     anotadas = await db.all(
-      'SELECT r.intento_id, r.pregunta_id, r.puntaje, r.corregida FROM respuestas r ' +
-        'WHERE r.pregunta_id IN (' + marcadores + ') AND r.corregida = 1',
+      'SELECT r.intento_id, r.pregunta_id, r.puntaje, r.corregida, r.respuesta_texto ' +
+        'FROM respuestas r WHERE r.pregunta_id IN (' + marcadores + ')',
       idsPreguntas
     );
   }
@@ -102,7 +107,13 @@ router.get('/pruebas/:id/correccion', async (req, res) => {
   const porIntento = new Map();
   for (const r of anotadas) {
     if (!porIntento.has(r.intento_id)) porIntento.set(r.intento_id, {});
-    porIntento.get(r.intento_id)[r.pregunta_id] = r.puntaje;
+    porIntento.get(r.intento_id)[r.pregunta_id] = {
+      // Solo cuenta como puntaje anotado si la docente la corrigio: un puntaje
+      // guardado con corregida = 0 es un resto de cuando la pregunta era de otro
+      // tipo, y darlo por bueno diria que ya esta revisada.
+      puntaje: r.corregida ? r.puntaje : null,
+      texto: r.respuesta_texto || '',
+    };
   }
 
   res.json({
@@ -114,7 +125,7 @@ router.get('/pruebas/:id/correccion', async (req, res) => {
       intento_id: i.id,
       nombre: i.nombre,
       curso: i.curso,
-      puntajes: porIntento.get(i.id) || {},
+      respuestas: porIntento.get(i.id) || {},
     })),
   });
 });
@@ -133,8 +144,8 @@ router.put('/intentos/:id/correccion', async (req, res) => {
     [req.body?.pregunta_id, intento.prueba_id]
   );
   if (!pregunta) return res.status(404).json({ error: 'Pregunta no encontrada en esta prueba.' });
-  if (pregunta.tipo !== 'papel') {
-    return res.status(400).json({ error: 'Esa pregunta se corrige sola: la respondió el estudiante en pantalla.' });
+  if (!seCorrigeAMano(pregunta)) {
+    return res.status(400).json({ error: 'Esa pregunta se corrige sola contra su clave.' });
   }
 
   const borrar = req.body?.puntaje === null || req.body?.puntaje === '';
@@ -265,8 +276,13 @@ router.get('/pruebas/:id/informe.csv', async (req, res) => {
     for (const p of preguntas) {
       const r = mapa.get(p.id);
       if (!r) { fila.push('N'); continue; }
-      if (p.tipo === 'alternativas') fila.push(r.alternativa || 'N');
-      else fila.push(r.codigo_rubrica === null || r.codigo_rubrica === undefined ? 'N' : 'C' + r.codigo_rubrica);
+      // En las de alternativas va la letra marcada; en las que corrige la
+      // docente va el puntaje que le puso, que es el dato equivalente. El texto
+      // completo de una respuesta escrita no cabe en una celda: eso se lee en
+      // la pestaña Corregir.
+      if (!seCorrigeAMano(p)) fila.push(r.alternativa || 'N');
+      else if (r.corregida && r.puntaje !== null && r.puntaje !== undefined) fila.push(formatoPuntos(r.puntaje));
+      else fila.push('N');
     }
     lineas.push(fila.map(csvEscapar).join(';'));
   }
