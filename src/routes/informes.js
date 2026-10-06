@@ -37,6 +37,29 @@ router.get('/pruebas/:id/monitor', async (req, res) => {
   });
 });
 
+/**
+ * Cierra la prueba de un estudiante que se fue sin enviarla.
+ *
+ * Pasa exactamente lo mismo que si la hubiera enviado él: se conservan todas las
+ * respuestas que alcanzó a guardar y se corrige al momento. Es la contraparte de
+ * «Reabrir», y existe porque el caso corriente es que alguien cierre el
+ * navegador al terminar y su prueba quede en el aire sin aparecer en el informe.
+ */
+router.post('/intentos/:id/cerrar', async (req, res) => {
+  const intento = await db.get('SELECT * FROM intentos WHERE id = ?', [req.params.id]);
+  if (!intento) return res.status(404).json({ error: 'Intento no encontrado.' });
+  if (intento.estado === 'enviado') {
+    return res.status(409).json({ error: 'Esa prueba ya estaba entregada.' });
+  }
+
+  await db.run(
+    "UPDATE intentos SET estado = 'enviado', enviado_en = " + db.AHORA + ' WHERE id = ?',
+    [intento.id]
+  );
+  const totales = await recalcularIntento(intento.id);
+  res.json({ ok: true, intento: totales });
+});
+
 /** Reabre un intento ya enviado (por ejemplo, si al alumno se le cortó la conexión). */
 router.post('/intentos/:id/reabrir', async (req, res) => {
   const r = await db.run(

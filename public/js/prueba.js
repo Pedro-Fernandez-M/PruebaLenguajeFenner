@@ -897,7 +897,11 @@ export async function vistaMonitor(nodo, id) {
             return '<tr><td>' + esc(i.nombre) + '</td><td>' + esc(i.curso) + '</td>' +
               '<td>' + barra(p, 'azul') + ' <span class="silencio">' + i.respondidas + '/' + datos.total_preguntas + '</span></td>' +
               '<td class="silencio">' + fecha(i.iniciado_en) + '</td>' +
-              '<td><button class="peligro chico" data-borrar-intento="' + i.id + '">Anular</button></td></tr>';
+              '<td><div class="fila fin">' +
+                '<button class="peligro chico" data-borrar-intento="' + i.id + '">Anular</button>' +
+                '<button class="chico" data-cerrar="' + i.id + '" ' +
+                  'data-nombre="' + esc(i.nombre) + '" data-hechas="' + i.respondidas + '">Cerrar prueba</button>' +
+              '</div></td></tr>';
           }).join('') + '</tbody></table>'
         : '<p class="silencio">Nadie está rindiendo en este momento.</p>') +
     '</div>' +
@@ -928,6 +932,18 @@ export async function vistaMonitor(nodo, id) {
   nodo.querySelectorAll('[data-borrar-intento]').forEach((b) => b.addEventListener('click', async () => {
     if (!confirm('Se borrarán las respuestas de este intento. ¿Continuar?')) return;
     await api('/api/admin/intentos/' + b.dataset.borrarIntento, { metodo: 'DELETE' });
+    recargar();
+  }));
+
+  // Entregar por el estudiante que se fue sin enviar. Se dice cuántas alcanzó a
+  // responder: si son muy pocas, lo más probable es que todavía esté rindiendo.
+  nodo.querySelectorAll('[data-cerrar]').forEach((b) => b.addEventListener('click', async () => {
+    const aviso = 'Se entregará la prueba de ' + b.dataset.nombre + ' tal como está, ' +
+      'con las ' + b.dataset.hechas + ' respuestas que alcanzó a guardar.\n\n' +
+      'Las que no respondió quedan como incorrectas. Después ya no podrá seguir, ' +
+      'pero puedes volver a abrírsela con «Reabrir».\n\n¿Cerrar su prueba?';
+    if (!confirm(aviso)) return;
+    await api('/api/admin/intentos/' + b.dataset.cerrar + '/cerrar', { cuerpo: {} });
     recargar();
   }));
 }
