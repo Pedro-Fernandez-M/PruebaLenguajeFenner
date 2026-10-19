@@ -17,7 +17,8 @@
     "replicar": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/replicar-prueba.mjs",
     "generar-esquemas": "node scripts/generar-esquemas.mjs",
     "probar-notas": "node scripts/probar-notas.mjs",
-    "estado": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/estado.mjs"
+    "estado": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/estado.mjs",
+    "respaldo": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/respaldo.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

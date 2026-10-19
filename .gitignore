@@ -3,3 +3,5 @@ data/*.db
 data/*.db-*
 .env
 .vercel
+# Llevan nombres y RUT de estudiantes: nunca al repositorio, que es publico.
+respaldos/
