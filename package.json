@@ -18,7 +18,8 @@
     "generar-esquemas": "node scripts/generar-esquemas.mjs",
     "probar-notas": "node scripts/probar-notas.mjs",
     "estado": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/estado.mjs",
-    "respaldo": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/respaldo.mjs"
+    "respaldo": "node --env-file-if-exists=.env --experimental-sqlite --no-warnings scripts/respaldo.mjs",
+    "enviar-respaldo": "node --env-file-if-exists=.env scripts/enviar-respaldo.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",
@@ -26,6 +27,7 @@
     "pg": "^8.13.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "nodemailer": "^10.1.7"
   }
 }

@@ -1,0 +1,62 @@
+# Respaldo semanal de la plataforma.
+#
+# Hace dos cosas con una sola corrida:
+#   1. baja la base entera y la manda por correo
+#   2. mantiene despierto el proyecto de Supabase, que en el plan gratuito se
+#      pausa solo despues de una semana sin consultas (y eso ya dejo la
+#      plataforma caida una vez)
+#
+# Corre en la nube, no en el notebook del liceo: tiene que funcionar aunque ese
+# equipo este apagado, que es justamente cuando pasan las semanas sin uso.
+#
+# Hace falta cargar estos secretos en Settings → Secrets and variables → Actions:
+#   DATABASE_URL     la misma cadena del pooler que usa Vercel
+#   CORREO_DESTINO   a quien llega el respaldo
+#   SMTP_HOST        p. ej. smtp.gmail.com
+#   SMTP_PORT        465 (opcional; 465 por defecto)
+#   SMTP_USUARIO     la cuenta que envia
+#   SMTP_CLAVE       su contraseña de aplicacion
+name: Respaldo semanal
+
+on:
+  schedule:
+    # Lunes a las 11:00 UTC = 08:00 en Chile (07:00 en invierno).
+    - cron: '0 11 * * 1'
+  # Para poder dispararlo a mano desde la pestaña Actions y probarlo.
+  workflow_dispatch:
+
+# Solo lectura: esta tarea no escribe nada en el repositorio.
+permissions:
+  contents: read
+
+jobs:
+  respaldo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Bajar la base
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run respaldo
+
+      - name: Enviarlo por correo
+        env:
+          CORREO_DESTINO: ${{ secrets.CORREO_DESTINO }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USUARIO: ${{ secrets.SMTP_USUARIO }}
+          SMTP_CLAVE: ${{ secrets.SMTP_CLAVE }}
+        run: npm run enviar-respaldo
+
+      # A proposito NO se guarda el respaldo como artefacto de la corrida: en un
+      # repositorio publico los artefactos los puede descargar cualquiera, y el
+      # archivo lleva nombres y RUT de 214 estudiantes. El correo es el unico
+      # destino.
