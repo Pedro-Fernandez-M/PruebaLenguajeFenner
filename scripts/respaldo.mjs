@@ -20,6 +20,23 @@ import * as db from '../src/db/index.js';
 import { informeDePrueba } from '../src/lib/evaluacion.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// Sin DATABASE_URL la capa de datos cae a SQLite local, que es lo correcto en el
+// liceo sin internet pero NO en la tarea automatica: ahi significaria respaldar
+// una base vacia —o peor, una vieja— y mandarla por correo como si fuera la
+// buena. Un respaldo equivocado es peor que ninguno, porque nadie lo revisa
+// hasta el dia que hace falta.
+if (!process.env.DATABASE_URL && process.env.CI) {
+  console.error('\nFalta el secreto DATABASE_URL.');
+  console.error('Sin el, esto respaldaria una base local vacia en vez de Supabase.');
+  console.error('');
+  console.error('Revisa en GitHub → Settings → Secrets and variables → Actions:');
+  console.error('  · que exista en la pestaña "Secrets", no en "Variables"');
+  console.error('  · que sea un "Repository secret", no de un Environment');
+  console.error('  · que se llame exactamente DATABASE_URL\n');
+  process.exit(1);
+}
+
 const carpeta = path.join(raiz, 'respaldos');
 fs.mkdirSync(carpeta, { recursive: true });
 
